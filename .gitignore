@@ -12,6 +12,8 @@ build
 bin
 dist-electron
 *.tsbuildinfo
+# autogen by `next dev` / `next build`, flaps between dev/build paths (см. patch.md, патч 6)
+next-env.d.ts
 # ...except electron-builder's source resources dir, which holds tracked
 # config files (entitlements, icons) — not build output.
 !apps/desktop/build/
