@@ -309,14 +309,12 @@ export function useCreateComment(issueId: string) {
     mutationFn: ({
       content,
       type,
-      parentId,
       attachmentIds,
     }: {
       content: string;
       type?: string;
-      parentId?: string;
       attachmentIds?: string[];
-    }) => api.createComment(issueId, content, type, parentId, attachmentIds),
+    }) => api.createComment(issueId, content, type, attachmentIds),
     onSuccess: (comment) => {
       // Write into every paginated timeline cache that's currently at-latest
       // (around-mode caches viewing older windows skip silently inside

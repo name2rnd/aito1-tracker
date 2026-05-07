@@ -276,7 +276,7 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
   // Custom hooks — encapsulate timeline, reactions, subscribers
   const {
     timeline, loading: timelineLoading,
-    submitComment, submitReply,
+    submitComment,
     editComment, deleteComment, toggleReaction: handleToggleReaction,
     hasMoreOlder, hasMoreNewer,
     isFetchingOlder, isFetchingNewer,
@@ -284,20 +284,15 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
     isAtLatest, newEntriesBelowCount,
   } = useIssueTimeline(id, user?.id, { around: highlightCommentId ?? null });
 
-  // Memoized timeline grouping. The same Map / groups references are reused
-  // across re-renders that don't change `timeline`, so React.memo on
-  // CommentCard can skip re-rendering when the only thing that moved was
-  // unrelated parent state (e.g. composer draft, sidebar toggle).
+  // Memoized timeline grouping. The same groups reference is reused across
+  // re-renders that don't change `timeline`, so React.memo on CommentCard
+  // can skip re-rendering when the only thing that moved was unrelated
+  // parent state (e.g. composer draft, sidebar toggle).
+  // Patch 7 (drop reply mechanic): every comment is rendered as a top-level
+  // entry. Legacy comments with `parent_id != null` (if any persisted in DB)
+  // also surface flat — the field is just not used for grouping anymore.
   const timelineView = useMemo(() => {
-    const topLevel = timeline.filter((e) => e.type === "activity" || !e.parent_id);
-    const repliesByParent = new Map<string, TimelineEntry[]>();
-    for (const e of timeline) {
-      if (e.type === "comment" && e.parent_id) {
-        const list = repliesByParent.get(e.parent_id) ?? [];
-        list.push(e);
-        repliesByParent.set(e.parent_id, list);
-      }
-    }
+    const topLevel = timeline;
 
     // Coalesce consecutive activities from the same actor + action.
     // - task_completed / task_failed: no time limit (these repeat across runs)
@@ -338,7 +333,7 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
       }
     }
 
-    return { repliesByParent, groups };
+    return { groups };
   }, [timeline]);
 
   const {
@@ -1011,10 +1006,8 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
                       <CommentCard
                         issueId={id}
                         entry={entry}
-                        allReplies={timelineView.repliesByParent}
                         currentUserId={user?.id}
                         canModerate={canModerateComments}
-                        onReply={submitReply}
                         onEdit={editComment}
                         onDelete={deleteComment}
                         onToggleReaction={handleToggleReaction}

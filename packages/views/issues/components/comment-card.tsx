@@ -33,7 +33,6 @@ import { ContentEditor, type ContentEditorRef, copyMarkdown, ReadonlyContent, us
 import { FileUploadButton } from "@multica/ui/components/common/file-upload-button";
 import { useFileUpload } from "@multica/core/hooks/use-file-upload";
 import { api } from "@multica/core/api";
-import { ReplyInput } from "./reply-input";
 import type { TimelineEntry, Attachment } from "@multica/core/types";
 import { useCommentCollapseStore } from "@multica/core/issues/stores";
 import { useT } from "../../i18n";
@@ -45,17 +44,15 @@ import { useT } from "../../i18n";
 interface CommentCardProps {
   issueId: string;
   entry: TimelineEntry;
-  allReplies: Map<string, TimelineEntry[]>;
   currentUserId?: string;
   /**
    * True when the current user is a workspace owner/admin and can therefore
    * moderate comments authored by anyone — restoring the admin override that
    * the backend already grants at `comment.go:507-512`. Computed once in
-   * `issue-detail.tsx` and threaded down so neither this component nor
-   * `CommentRow` has to rerun the rule per row.
+   * `issue-detail.tsx` and threaded down so this component does not rerun
+   * the rule per row.
    */
   canModerate?: boolean;
-  onReply: (parentId: string, content: string, attachmentIds?: string[]) => Promise<void>;
   onEdit: (commentId: string, content: string) => Promise<void>;
   onDelete: (commentId: string) => void;
   onToggleReaction: (commentId: string, emoji: string) => void;
@@ -71,12 +68,10 @@ function DeleteCommentDialog({
   open,
   onOpenChange,
   onConfirm,
-  hasReplies,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onConfirm: () => void;
-  hasReplies?: boolean;
 }) {
   const { t } = useT("issues");
   return (
@@ -85,9 +80,7 @@ function DeleteCommentDialog({
         <AlertDialogHeader>
           <AlertDialogTitle>{t(($) => $.comment.delete_title)}</AlertDialogTitle>
           <AlertDialogDescription>
-            {hasReplies
-              ? t(($) => $.comment.delete_desc_with_replies)
-              : t(($) => $.comment.delete_desc)}
+            {t(($) => $.comment.delete_desc)}
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
@@ -155,204 +148,14 @@ function AttachmentList({ attachments, content, className }: { attachments?: Att
 }
 
 // ---------------------------------------------------------------------------
-// Single comment row (used for both parent and replies within the same Card)
-// ---------------------------------------------------------------------------
-
-function CommentRow({
-  issueId,
-  entry,
-  currentUserId,
-  canModerate = false,
-  onEdit,
-  onDelete,
-  onToggleReaction,
-}: {
-  issueId: string;
-  entry: TimelineEntry;
-  currentUserId?: string;
-  canModerate?: boolean;
-  onEdit: (commentId: string, content: string) => Promise<void>;
-  onDelete: (commentId: string) => void;
-  onToggleReaction: (commentId: string, emoji: string) => void;
-}) {
-  const { t } = useT("issues");
-  const { getActorName } = useActorName();
-  const [editing, setEditing] = useState(false);
-  const editEditorRef = useRef<ContentEditorRef>(null);
-  const cancelledRef = useRef(false);
-  const { uploadWithToast } = useFileUpload(api);
-  const { isDragOver, dropZoneProps } = useFileDropZone({
-    onDrop: (files) => files.forEach((f) => editEditorRef.current?.uploadFile(f)),
-    enabled: editing,
-  });
-
-  const isOwn = entry.actor_type === "member" && entry.actor_id === currentUserId;
-  const canEditEntry = isOwn || (canModerate && entry.actor_type === "member");
-  const canDeleteEntry = isOwn || canModerate;
-  const isTemp = entry.id.startsWith("temp-");
-  const [confirmDelete, setConfirmDelete] = useState(false);
-
-  const startEdit = () => {
-    cancelledRef.current = false;
-    setEditing(true);
-  };
-
-  const cancelEdit = () => {
-    cancelledRef.current = true;
-    setEditing(false);
-  };
-
-  const saveEdit = async () => {
-    if (cancelledRef.current) return;
-    const trimmed = editEditorRef.current
-      ?.getMarkdown()
-      ?.replace(/(\n\s*)+$/, "")
-      .trim();
-    if (!trimmed || trimmed === (entry.content ?? "").trim()) {
-      setEditing(false);
-      return;
-    }
-    try {
-      await onEdit(entry.id, trimmed);
-      setEditing(false);
-    } catch {
-      toast.error(t(($) => $.comment.update_failed));
-    }
-  };
-
-  const reactions = entry.reactions ?? [];
-  const contentText = entry.content ?? "";
-  const isLongContent = contentText.length > 500 || contentText.split("\n").length > 8;
-
-  return (
-    <div className={`py-3${isTemp ? " opacity-60" : ""}`}>
-      <div className="flex items-center gap-2.5">
-        <ActorAvatar actorType={entry.actor_type} actorId={entry.actor_id} size={24} enableHoverCard showStatusDot />
-        <span className="cursor-pointer text-sm font-medium">
-          {getActorName(entry.actor_type, entry.actor_id)}
-        </span>
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <span className="text-xs text-muted-foreground cursor-default">
-                {timeAgo(entry.created_at)}
-              </span>
-            }
-          />
-          <TooltipContent side="top">
-            {new Date(entry.created_at).toLocaleString()}
-          </TooltipContent>
-        </Tooltip>
-
-        {!isTemp && (
-          <div className="ml-auto flex items-center gap-0.5">
-            <DropdownMenu>
-            <DropdownMenuTrigger
-              render={
-                <Button variant="ghost" size="icon-sm" className="text-muted-foreground">
-                  <MoreHorizontal className="h-4 w-4" />
-                </Button>
-              }
-            />
-            <DropdownMenuContent align="end">
-              <DropdownMenuItem onClick={() => {
-                copyMarkdown(entry.content ?? "");
-                toast.success(t(($) => $.comment.copied_toast));
-              }}>
-                <Copy className="h-3.5 w-3.5" />
-                {t(($) => $.comment.copy_action)}
-              </DropdownMenuItem>
-              {(canEditEntry || canDeleteEntry) && (
-                <>
-                  <DropdownMenuSeparator />
-                  {canEditEntry && (
-                    <DropdownMenuItem onClick={startEdit}>
-                      <Pencil className="h-3.5 w-3.5" />
-                      {t(($) => $.comment.edit_action)}
-                    </DropdownMenuItem>
-                  )}
-                  {canEditEntry && canDeleteEntry && <DropdownMenuSeparator />}
-                  {canDeleteEntry && (
-                    <DropdownMenuItem onClick={() => setConfirmDelete(true)} variant="destructive">
-                      <Trash2 className="h-3.5 w-3.5" />
-                      {t(($) => $.comment.delete_action)}
-                    </DropdownMenuItem>
-                  )}
-                </>
-              )}
-            </DropdownMenuContent>
-          </DropdownMenu>
-          <DeleteCommentDialog
-            open={confirmDelete}
-            onOpenChange={setConfirmDelete}
-            onConfirm={() => onDelete(entry.id)}
-          />
-          </div>
-        )}
-      </div>
-
-      {editing ? (
-        <div
-          {...dropZoneProps}
-          className="relative mt-1.5 pl-8"
-          onKeyDown={(e) => { if (e.key === "Escape") cancelEdit(); }}
-        >
-          <div className="text-sm leading-relaxed">
-            <ContentEditor
-              ref={editEditorRef}
-              defaultValue={entry.content ?? ""}
-              placeholder={t(($) => $.comment.edit_placeholder)}
-              onSubmit={saveEdit}
-              onUploadFile={(file) => uploadWithToast(file, { issueId })}
-              debounceMs={100}
-              currentIssueId={issueId}
-            />
-          </div>
-          <div className="flex items-center justify-between mt-2">
-            <FileUploadButton
-              size="sm"
-              onSelect={(file) => editEditorRef.current?.uploadFile(file)}
-            />
-            <div className="flex items-center gap-2">
-              <Button size="sm" variant="ghost" onClick={cancelEdit}>{t(($) => $.comment.cancel_edit)}</Button>
-              <Button size="sm" variant="outline" onClick={saveEdit}>{t(($) => $.comment.save_action)}</Button>
-            </div>
-          </div>
-          {isDragOver && <FileDropOverlay />}
-        </div>
-      ) : (
-        <>
-          <div className="mt-1.5 pl-8 text-sm leading-relaxed text-foreground/85">
-            <ReadonlyContent content={entry.content ?? ""} />
-          </div>
-          <AttachmentList attachments={entry.attachments} content={entry.content} className="mt-1.5 pl-8" />
-          {!isTemp && (
-            <ReactionBar
-              reactions={reactions}
-              currentUserId={currentUserId}
-              onToggle={(emoji) => onToggleReaction(entry.id, emoji)}
-              getActorName={getActorName}
-              hideAddButton={!isLongContent}
-              className="mt-1.5 pl-8"
-            />
-          )}
-        </>
-      )}
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// CommentCard — One Card per thread (parent + all replies flat inside)
+// CommentCard — one Card per comment (Patch 7: no nested replies)
 // ---------------------------------------------------------------------------
 
 function CommentCardImpl({
   issueId,
   entry,
-  allReplies,
   currentUserId,
   canModerate = false,
-  onReply,
   onEdit,
   onDelete,
   onToggleReaction,
@@ -411,18 +214,6 @@ function CommentCardImpl({
     }
   };
 
-  // Collect all nested replies recursively into a flat list
-  const allNestedReplies: TimelineEntry[] = [];
-  const collectReplies = (parentId: string) => {
-    const children = allReplies.get(parentId) ?? [];
-    for (const child of children) {
-      allNestedReplies.push(child);
-      collectReplies(child.id);
-    }
-  };
-  collectReplies(entry.id);
-
-  const replyCount = allNestedReplies.length;
   const contentPreview = (entry.content ?? "").replace(/\n/g, " ").slice(0, 80);
   const reactions = entry.reactions ?? [];
   const contentText = entry.content ?? "";
@@ -459,11 +250,6 @@ function CommentCardImpl({
             {!open && contentPreview && (
               <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
                 {contentPreview}
-              </span>
-            )}
-            {!open && replyCount > 0 && (
-              <span className="shrink-0 text-xs text-muted-foreground">
-                {t(($) => $.comment.reply_count, { count: replyCount })}
               </span>
             )}
 
@@ -509,7 +295,6 @@ function CommentCardImpl({
                 open={confirmDelete}
                 onOpenChange={setConfirmDelete}
                 onConfirm={() => onDelete(entry.id)}
-                hasReplies
               />
               </div>
             )}
@@ -569,32 +354,6 @@ function CommentCardImpl({
             )}
           </div>
 
-          {/* Replies */}
-          {allNestedReplies.map((reply) => (
-            <div key={reply.id} id={`comment-${reply.id}`} className={cn("border-t border-border/50 px-4 transition-colors duration-700", highlightedCommentId === reply.id && "bg-brand/5")}>
-              <CommentRow
-                issueId={issueId}
-                entry={reply}
-                currentUserId={currentUserId}
-                canModerate={canModerate}
-                onEdit={onEdit}
-                onDelete={onDelete}
-                onToggleReaction={onToggleReaction}
-              />
-            </div>
-          ))}
-
-          {/* Reply input */}
-          <div className="border-t border-border/50 px-4 py-2.5">
-            <ReplyInput
-              issueId={issueId}
-              placeholder={t(($) => $.reply.placeholder)}
-              size="sm"
-              avatarType="member"
-              avatarId={currentUserId ?? ""}
-              onSubmit={(content, attachmentIds) => onReply(entry.id, content, attachmentIds)}
-            />
-          </div>
         </CollapsibleContent>
       </Collapsible>
     </Card>

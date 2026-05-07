@@ -304,23 +304,6 @@ export function useIssueTimeline(
     [userId, submitting, createComment, t],
   );
 
-  const submitReply = useCallback(
-    async (parentId: string, content: string, attachmentIds?: string[]) => {
-      if (!content.trim() || !userId) return;
-      try {
-        await createComment({
-          content,
-          type: "comment",
-          parentId,
-          attachmentIds,
-        });
-      } catch {
-        toast.error(t(($) => $.comment.send_reply_failed));
-      }
-    },
-    [userId, createComment, t],
-  );
-
   const editComment = useCallback(
     async (commentId: string, content: string) => {
       try {
@@ -438,7 +421,6 @@ export function useIssueTimeline(
     loading,
     submitting,
     submitComment,
-    submitReply,
     editComment,
     deleteComment,
     toggleReaction,

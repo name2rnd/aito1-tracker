@@ -692,7 +692,7 @@ func (s *TaskService) CompleteTask(ctx context.Context, taskID pgtype.UUID, resu
 					// decoded into real newlines before the comment hits the DB. See
 					// util.UnescapeBackslashEscapes for the exact contract.
 					body := util.UnescapeBackslashEscapes(payload.Output)
-					s.createAgentComment(ctx, task.IssueID, task.AgentID, redact.Text(body), "comment", task.TriggerCommentID)
+					s.createAgentComment(ctx, task.IssueID, task.AgentID, redact.Text(body), "comment")
 				}
 			}
 		}
@@ -831,7 +831,7 @@ func (s *TaskService) FailTask(ctx context.Context, taskID pgtype.UUID, errMsg, 
 	// want to spam the issue with "task timed out" messages on every
 	// daemon hiccup.
 	if errMsg != "" && task.IssueID.Valid && retried == nil {
-		s.createAgentComment(ctx, task.IssueID, task.AgentID, redact.Text(errMsg), "system", task.TriggerCommentID)
+		s.createAgentComment(ctx, task.IssueID, task.AgentID, redact.Text(errMsg), "system")
 	}
 
 	// Mirror the issue fallback for chat tasks: write an assistant
@@ -1383,7 +1383,7 @@ func (s *TaskService) getIssuePrefix(workspaceID pgtype.UUID) string {
 	return ws.IssuePrefix
 }
 
-func (s *TaskService) createAgentComment(ctx context.Context, issueID, agentID pgtype.UUID, content, commentType string, parentID pgtype.UUID) {
+func (s *TaskService) createAgentComment(ctx context.Context, issueID, agentID pgtype.UUID, content, commentType string) {
 	if content == "" {
 		return
 	}
@@ -1392,13 +1392,7 @@ func (s *TaskService) createAgentComment(ctx context.Context, issueID, agentID p
 	if err != nil {
 		return
 	}
-	// Resolve thread root: if parentID points to a reply (has its own parent),
-	// use that parent instead so the comment lands in the top-level thread.
-	if parentID.Valid {
-		if parent, err := s.Queries.GetComment(ctx, parentID); err == nil && parent.ParentID.Valid {
-			parentID = parent.ParentID
-		}
-	}
+	// Patch 7 (drop reply mechanic): agents always post flat comments.
 	// Expand bare issue identifiers (e.g. MUL-117) into mention links.
 	content = mention.ExpandIssueIdentifiers(ctx, s.Queries, issue.WorkspaceID, content)
 	comment, err := s.Queries.CreateComment(ctx, db.CreateCommentParams{
@@ -1408,7 +1402,7 @@ func (s *TaskService) createAgentComment(ctx context.Context, issueID, agentID p
 		AuthorID:    agentID,
 		Content:     content,
 		Type:        commentType,
-		ParentID:    parentID,
+		ParentID:    pgtype.UUID{},
 	})
 	if err != nil {
 		return
