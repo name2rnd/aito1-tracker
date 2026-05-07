@@ -225,6 +225,8 @@ script := "#!/bin/sh\n" +
 **Файлы:**
 - `apps/web/next.config.ts` (правка над upstream — `outputFileTracingRoot`)
 - `scripts/aito1-deploy.sh` *(новый, AITO1-специфичный — не для upstream PR)*
+- `.gitignore` (`next-env.d.ts` добавлен — flaps между `next dev` и `next build`)
+- `apps/web/next-env.d.ts` *(удалён из tracking; файл остаётся на диске, генерится Next.js)*
 
 **Зачем:** до этого патча установщик AITO1 клонировал второй экземпляр форка в `~/.aito1/multica-src` и launchd-сервисы стартовали оттуда. Это создавало два HEAD'а одного репо (dev-клон в `~/Documents/...` + production-клон в `~/.aito1/multica-src`), которые надо было руками синхронизировать `cp`'ями. Кроме того, симлинк `~/.aito1/multica-src → ~/Documents/...` не работает из-за macOS TCC: launchd-сервисы не могут читать `.env` через симлинк, ведущий в `~/Documents/`.
 
