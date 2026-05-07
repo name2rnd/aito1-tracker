@@ -355,6 +355,31 @@ go build ./server/... && go test ./server/pkg/agent/... -count=1
 
 ---
 
+### Патч 8 — Board: компактные колонки + 3-строчный заголовок + порядок blocked/done
+
+**Файлы:**
+- `packages/views/issues/components/board-column.tsx` — `w-[280px]` → `w-[196px]`
+- `packages/views/issues/components/board-view.tsx` — DragOverlay `w-[280px]` → `w-[196px]` (синхронно с шириной колонки)
+- `packages/views/issues/components/board-card.tsx` — `line-clamp-2` → `line-clamp-3` на заголовке
+- `packages/core/issues/config/status.ts` — `blocked` поставлен перед `done` в `STATUS_ORDER`, `ALL_STATUSES`, `BOARD_STATUSES`
+
+**Зачем:** при работе с AITO1 на маке хочется видеть больше колонок одновременно (todo / in_progress / in_review / blocked / done) без горизонтального скролла. Заголовки задач длинные («Изучить, что такое Стефания (корпоративный инструмент)») — двух строк мало, обрезается полезное. Логически `blocked` — это активный статус, требующий внимания (агент упёрся в `[BLOCKED]` / `[PLAN BLOCKED]`), и должен соседствовать с `in_review`, а не уходить за финальный `done`.
+
+**Что изменено:** ширина board-колонки уменьшена на 30% (280 → 196), DragOverlay подгоняется к колонке, в карточке заголовок занимает до 3 строк, `blocked` идёт перед `done`.
+
+`HiddenColumnsPanel` (240px) **не трогали** — это сайдбар скрытых колонок, не карточка. Если визуально просядет — поменяем отдельно.
+
+**Если конфликт при merge/rebase с upstream:**
+
+| Конфликт | Что делать |
+|---|---|
+| Upstream поменял `w-[280px]` в `board-column.tsx` / `board-view.tsx` | Принять upstream-значение, умножить на 0.7 (или подобрать близкое). Главное — два места синхронны. |
+| Upstream рефакторнул разметку карточки и `line-clamp-2` мигрировал | Найти clamp заголовка (после блока `identifier`), поставить `line-clamp-3`. |
+| Upstream добавил настраиваемую ширину колонки в view-store | Использовать новый механизм, дефолт уменьшить на 30%. |
+| Upstream поменял порядок в `STATUS_ORDER` / `ALL_STATUSES` / `BOARD_STATUSES` | Принять upstream, переставить `blocked` перед `done` во всех трёх массивах. |
+
+---
+
 ## Связанные правки **вне** этого репо (для полноты картины)
 
 Эти правки лежат в других репо/файлах, но без них наш форк работает не полностью. Они описаны отдельно — здесь только указатели:

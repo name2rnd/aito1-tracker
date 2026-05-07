@@ -5,8 +5,8 @@ export const STATUS_ORDER: IssueStatus[] = [
   "todo",
   "in_progress",
   "in_review",
-  "done",
   "blocked",
+  "done",
   "cancelled",
 ];
 
@@ -15,8 +15,8 @@ export const ALL_STATUSES: IssueStatus[] = [
   "todo",
   "in_progress",
   "in_review",
-  "done",
   "blocked",
+  "done",
   "cancelled",
 ];
 
@@ -26,8 +26,8 @@ export const BOARD_STATUSES: IssueStatus[] = [
   "todo",
   "in_progress",
   "in_review",
-  "done",
   "blocked",
+  "done",
 ];
 
 export const STATUS_CONFIG: Record<

@@ -55,7 +55,7 @@ export function BoardColumn({
   );
 
   return (
-    <div className={`flex w-[280px] shrink-0 flex-col rounded-xl ${cfg.columnBg} p-2`}>
+    <div className={`flex w-[196px] shrink-0 flex-col rounded-xl ${cfg.columnBg} p-2`}>
       <div className="mb-2 flex items-center justify-between px-1.5">
         <StatusHeading status={status} count={totalCount ?? issueIds.length} />
 
