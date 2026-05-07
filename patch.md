@@ -47,11 +47,12 @@ git push --force-with-lease origin main
 git log --oneline | grep -E "fix\(agent\): switch managed|fix\(agent\): support managed|feat\(ui\): like-only|build\(web\): outputFileTracingRoot"
 ```
 
-Должно показать **четыре** строки:
+Должно показать **пять** строк:
 - `27ece86c fix(agent): switch managed permission mode from dontAsk to acceptEdits`
 - `4008d298 fix(agent): support managed permission policies in claude backend`
 - `c05c6391 feat(ui): like-only reactions, scoped to comments`
 - `build(web): outputFileTracingRoot for monorepo standalone` *(см. патч 6)*
+- `feat: drop reply mechanic — flat comments only` *(см. патч 7)*
 
 (хеши после rebase будут другие, но названия коммитов сохранятся.)
 
@@ -64,6 +65,10 @@ test -f packages/ui/components/common/like-button.tsx && echo ok  # патч 5
 test ! -f packages/ui/components/common/quick-emoji-picker.tsx && echo ok  # патч 5
 grep -c "outputFileTracingRoot" apps/web/next.config.ts  # патч 6, ожидаем 1
 test -x scripts/aito1-deploy.sh && echo ok  # патч 6
+test ! -f packages/views/issues/components/reply-input.tsx && echo ok  # патч 7
+grep -c "isReplyToMemberThread" server/internal/handler/comment.go  # патч 7, ожидаем 0
+grep -c "shouldInheritParentMentions" server/internal/handler/comment.go  # патч 7, ожидаем 0
+grep -c "HasAgentRepliedInThread" server/pkg/db/queries/comment.sql  # патч 7, ожидаем 0
 ```
 
 ---
@@ -270,6 +275,83 @@ script := "#!/bin/sh\n" +
 ```bash
 go build ./server/... && go test ./server/pkg/agent/... -count=1
 ```
+
+---
+
+### Патч 7 — drop reply mechanic (flat comments only)
+
+**Файлы:**
+- `server/internal/handler/comment.go` — выпил parent-id обработки + двух guard-функций
+- `server/internal/service/task.go` — `createAgentComment` без `parentID`
+- `server/pkg/db/queries/comment.sql` — удалён query `HasAgentRepliedInThread`
+- `server/pkg/db/generated/*.go` — регенерация sqlc
+- `server/cmd/server/comment_trigger_integration_test.go` — выпил reply-сценариев
+- `packages/views/issues/components/issue-detail.tsx` — flat-render
+- `packages/views/issues/components/comment-card.tsx` — без nested replies + ReplyInput
+- `packages/views/issues/components/reply-input.tsx` — **удалён**
+
+**Зачем:** AITO1-pipeline (Planner / Executor / Reflector) общается через flat-комменты с маркерами в первой строке (`[PLAN vN]`, `[EXECUTOR REPORT]`, `[REFLECTION]`, `[BLOCKED]`, `[PLAN BLOCKED]`). Reply-механика upstream'а нам не нужна и активно мешает: усложняет UX, требует guard'а `isReplyToMemberThread`, провоцирует sleep'ы агентов в reply-цепочках. Заодно убираем «агент обязательно отвечает reply'ем на trigger comment» (`createAgentComment` поднимался к thread root и постил reply туда) — теперь агент пишет flat.
+
+**База данных НЕ трогается.** Колонка `comment.parent_id` остаётся в схеме (миграции 017/018 upstream'а живут). Просто перестаём её писать и читать. Старые комменты с `parent_id != NULL` (если есть) остаются, рендерятся flat, никем не обрабатываются. Это сужает дифф, упрощает merge и оставляет дверь открытой к восстановлению механики, если когда-нибудь понадобится.
+
+**Что изменено:**
+
+1. **`comment.go`**:
+   - `CommentResponse.ParentID *string` остаётся (контракт API не сужается); `commentToResponse` его выставляет из БД (для legacy-комментов будет non-nil, для новых — nil).
+   - `CreateCommentRequest.ParentID *string` остаётся, **игнорируется** в обработке.
+   - Удалён блок валидации `parent_id` (старые строки 198-213).
+   - Удалён agent-anti-drift defense block (старые 223-247).
+   - В `CreateCommentParams` всегда `ParentID: pgtype.UUID{}`.
+   - В условии enqueue (старая строка 296) убран вызов `!h.isReplyToMemberThread(...)`.
+   - Удалена функция `isReplyToMemberThread` целиком.
+   - Удалена функция `shouldInheritParentMentions` целиком.
+   - `enqueueMentionedAgentTasks` упрощена: убран параметр `parentComment`, нет наследования mentions от parent.
+
+2. **`task.go::createAgentComment`**:
+   - Удалён блок «подняться к thread root»:
+     ```go
+     // удалено:
+     if parentID.Valid {
+         if parent, err := s.Queries.GetComment(ctx, parentID); err == nil && parent.ParentID.Valid {
+             parentID = parent.ParentID
+         }
+     }
+     ```
+   - Сигнатура без параметра `parentID`. В `CreateComment` всегда `ParentID: pgtype.UUID{}`.
+   - Все вызовы (старые строки 695, 834) передают на один аргумент меньше.
+
+3. **`comment.sql`**: query `HasAgentRepliedInThread` удалён, `sqlc generate` регенерирует.
+
+4. **Frontend**:
+   - `issue-detail.tsx`: убрана группировка `repliesByParent` и `topLevel`-фильтр; `submitReply` хук и prop в CommentCard выпилены.
+   - `comment-card.tsx`: убраны `collectReplies`, рендер `allNestedReplies`, встроенный `<ReplyInput>`, collapsible-header с `reply_count`. Импорт `ReplyInput` снят.
+   - `reply-input.tsx` удалён.
+   - `TimelineEntry` тип: поле `parent_id` оставлено опциональным для совместимости с API.
+
+**Тесты:** `comment_trigger_integration_test.go` — выпиливаем reply-сценарии (старые строки 241-520):
+- `TestReplyRecordsNewCommentIDAsTriggerCommentID` — удалён.
+- `TestReplyToMemberThreadWithoutMentionsSuppressesTrigger` — удалён.
+- `TestReplyToMemberThreadAfterAgentRepliedTriggersAgent` — удалён.
+- `TestReplyInThreadInheritsParentMention` — удалён.
+- Helper `postComment(t, issueID, content, parentID)` упрощён без `parentID`.
+
+Прогон: `cd server && go test ./... -count=1`.
+
+**Frontend smoke**: `pnpm --filter @multica/views typecheck && pnpm --filter web typecheck && STANDALONE=true pnpm --filter web build` — все три прохода зелёные.
+
+**Если конфликт при merge/rebase с upstream:**
+
+| Конфликт | Что делать |
+|---|---|
+| Upstream добавил новое использование `parent_id` в API/UI | Принять upstream, **удалить** новые reply-блоки, оставив только flat path |
+| Upstream вернул `<ReplyInput>` где-то ещё | Удалить, оставить плоский `<CommentCard>` |
+| Upstream добавил новый guard на основе `parent_id` (типа нашего бывшего `isReplyToMemberThread`) | Удалить целиком — у нас reply нет |
+| Upstream поменял sqlc-queries на comment'ах | Принять, проверить что ни один наш query не тянет `parent_id` (только legacy SELECT с *, оставлять) |
+| Upstream сделал миграцию, удаляющую `parent_id` | Принять — это совместимо с нашим направлением |
+
+**Что НЕ откатываем при rebase:**
+- Любое возвращение reply UI (collectReplies, ReplyInput, replyCount-collapsible) удаляем заново.
+- Любое возвращение `parentID` в `createAgentComment` подписи — снимаем; агенту flat-коммент.
 
 ---
 

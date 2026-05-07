@@ -134,12 +134,11 @@ describe("useIssueTimeline", () => {
   // returns a *new* mutation result wrapper on every render, so a useCallback
   // listing the whole mutation object as a dep flips its identity every time
   // — that is the exact regression this test guards against.
-  it("submitReply / editComment / deleteComment / toggleReaction keep identity across unrelated re-renders", () => {
+  it("submitComment / editComment / deleteComment / toggleReaction keep identity across unrelated re-renders", () => {
     const { result, rerender } = renderHook(() => useIssueTimeline("issue-1", "user-1"));
 
     const first = {
       submitComment: result.current.submitComment,
-      submitReply: result.current.submitReply,
       editComment: result.current.editComment,
       deleteComment: result.current.deleteComment,
       toggleReaction: result.current.toggleReaction,
@@ -148,11 +147,10 @@ describe("useIssueTimeline", () => {
     rerender();
     rerender();
 
-    expect(result.current.submitReply).toBe(first.submitReply);
+    expect(result.current.submitComment).toBe(first.submitComment);
     expect(result.current.editComment).toBe(first.editComment);
     expect(result.current.deleteComment).toBe(first.deleteComment);
     expect(result.current.toggleReaction).toBe(first.toggleReaction);
-    expect(result.current.submitComment).toBe(first.submitComment);
   });
 
   it("flattens DESC pages into ASC timeline order", () => {
