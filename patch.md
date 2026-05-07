@@ -44,13 +44,14 @@ git push --force-with-lease origin main
 После любого pull/merge/rebase:
 
 ```bash
-git log --oneline | grep -E "fix\(agent\): switch managed|fix\(agent\): support managed|feat\(ui\): like-only"
+git log --oneline | grep -E "fix\(agent\): switch managed|fix\(agent\): support managed|feat\(ui\): like-only|build\(web\): outputFileTracingRoot"
 ```
 
-Должно показать **три** строки:
+Должно показать **четыре** строки:
 - `27ece86c fix(agent): switch managed permission mode from dontAsk to acceptEdits`
 - `4008d298 fix(agent): support managed permission policies in claude backend`
 - `c05c6391 feat(ui): like-only reactions, scoped to comments`
+- `build(web): outputFileTracingRoot for monorepo standalone` *(см. патч 6)*
 
 (хеши после rebase будут другие, но названия коммитов сохранятся.)
 
@@ -61,6 +62,8 @@ grep -c "control_request" server/pkg/agent/claude.go # ожидаем ≥ 1 (cas
 grep -c "Keep stdin open" server/pkg/agent/claude.go # ожидаем 1 (наш комментарий)
 test -f packages/ui/components/common/like-button.tsx && echo ok  # патч 5
 test ! -f packages/ui/components/common/quick-emoji-picker.tsx && echo ok  # патч 5
+grep -c "outputFileTracingRoot" apps/web/next.config.ts  # патч 6, ожидаем 1
+test -x scripts/aito1-deploy.sh && echo ok  # патч 6
 ```
 
 ---
@@ -214,6 +217,39 @@ script := "#!/bin/sh\n" +
 | Upstream отрефакторил `ReactionBar` (новые props, другая структура grouped) | Перенести `userAlreadyLiked` (любой derived-флаг по 👍 текущего юзера) и `<LikeButton onToggle={onToggle} />` на новые props; пикер не возвращать. |
 | Upstream добавил новую точку использования picker'а в коммент-UI (шапка / hover-row / inline) | Удалить целиком. Единственное разрешённое место для add-like — `<ReactionBar>` под телом коммента. |
 | Upstream вернул `<ReactionBar>` в `issue-detail.tsx` (под description) | Удалить блок и зачистить ставшие unused импорты `ReactionBar` / `useIssueReactions` + деструктуринг хука. Сам файл `use-issue-reactions.ts` оставить. |
+
+---
+
+### Патч 6 — AITO1 deploy: source → artifact → run
+
+**Файлы:**
+- `apps/web/next.config.ts` (правка над upstream — `outputFileTracingRoot`)
+- `scripts/aito1-deploy.sh` *(новый, AITO1-специфичный — не для upstream PR)*
+
+**Зачем:** до этого патча установщик AITO1 клонировал второй экземпляр форка в `~/.aito1/multica-src` и launchd-сервисы стартовали оттуда. Это создавало два HEAD'а одного репо (dev-клон в `~/Documents/...` + production-клон в `~/.aito1/multica-src`), которые надо было руками синхронизировать `cp`'ями. Кроме того, симлинк `~/.aito1/multica-src → ~/Documents/...` не работает из-за macOS TCC: launchd-сервисы не могут читать `.env` через симлинк, ведущий в `~/Documents/`.
+
+Переходим на стандартный flow «source → build → artifact → run»: dev-клон — единственный source of truth, `pnpm build` / `go build` создают артефакты, скрипт `aito1-deploy.sh` копирует их в `~/.aito1/`, плисты launchd стартуют ровно артефакты. `~/.aito1/multica-src` уходит совсем.
+
+**Что изменено:**
+
+1. **`apps/web/next.config.ts`** — внутри `STANDALONE === "true"` ветки добавлен `outputFileTracingRoot: resolve(__dirname, "../..")`. Без этого Next.js в pnpm-монорепо детектит workspace root по lockfile'у наугад (видит `~/package-lock.json` от других проектов) и упаковывает standalone-bundle с уродливым префиксом пути. Поведение **только при `STANDALONE=true`** — обычный dev-старт (`pnpm --filter web dev`) не затронут.
+
+2. **`scripts/aito1-deploy.sh`** — единая точка входа для деплоя. `./scripts/aito1-deploy.sh frontend|backend|all`:
+   - **frontend:** `STANDALONE=true pnpm --filter web build` → копирует `apps/web/.next/standalone/.` + `static` + `public` в `~/.aito1/web/` (~100 MB вместо 1.5 GB workspace `node_modules`). Рестарт `ai.aito1.multica.frontend`.
+   - **backend:** `go build` для `cmd/server` (multica-server), `cmd/multica` (daemon CLI), `cmd/migrate` → в `~/.aito1/multica/bin/`. Рестарт `ai.aito1.multica.backend` + `ai.aito1.multica.daemon`.
+
+**Связанные правки вне репо** (плисты + установщик):
+- `~/Library/LaunchAgents/ai.aito1.multica.frontend.plist`: `cd .../multica-src; pnpm --filter web start` → `node /Users/wwax/.aito1/web/apps/web/server.js`. WorkingDirectory → `~/.aito1/web`.
+- `~/Library/LaunchAgents/ai.aito1.multica.backend.plist`: `.env` source с `~/.aito1/multica-src/.env` → `~/.aito1/multica.env` (физическая копия, не через симлинк). WorkingDirectory → `~/.aito1`.
+- Установщик AITO1 (фаза `40_multica.sh`): должен прекратить клонировать второй экземпляр форка и принимать путь к существующему dev-клону через env / install.json. **Отдельная задача**, в этом PR не делается — пока deploy руками через скрипт после первоначальной установки.
+
+**Если конфликт при merge/rebase:**
+
+| Конфликт | Что делать |
+|---|---|
+| Upstream выпилил флаг `STANDALONE` или поменял условие | Перенести `outputFileTracingRoot: resolve(__dirname, "../..")` в новую конфигурацию standalone. Без него pack ломается. |
+| Upstream добавил свой `outputFileTracingRoot` | Принять upstream-значение, проверить что bundle собирается с правильной структурой (`.next/standalone/apps/web/server.js` без префикса `Documents/...`). |
+| Upstream поменял layout `apps/`, `server/cmd/` | Поправить пути в `scripts/aito1-deploy.sh` (один `cp -R` для frontend и три `go build` для backend — точечно). |
 
 ---
 

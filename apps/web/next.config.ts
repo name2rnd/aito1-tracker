@@ -23,7 +23,12 @@ const allowedDevOrigins = process.env.CORS_ALLOWED_ORIGINS
   : undefined;
 
 const nextConfig: NextConfig = {
-  ...(process.env.STANDALONE === "true" ? { output: "standalone" as const } : {}),
+  ...(process.env.STANDALONE === "true"
+    ? {
+        output: "standalone" as const,
+        outputFileTracingRoot: resolve(__dirname, "../.."),
+      }
+    : {}),
   transpilePackages: ["@multica/core", "@multica/ui", "@multica/views"],
   ...(allowedDevOrigins && allowedDevOrigins.length > 0
     ? { allowedDevOrigins }
