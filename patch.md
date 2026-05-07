@@ -44,15 +44,15 @@ git push --force-with-lease origin main
 После любого pull/merge/rebase:
 
 ```bash
-git log --oneline | grep -E "fix\(agent\): switch managed|fix\(agent\): support managed"
+git log --oneline | grep -E "fix\(agent\): switch managed|fix\(agent\): support managed|feat\(ui\): like-only"
 ```
 
 Должно показать **три** строки:
 - `27ece86c fix(agent): switch managed permission mode from dontAsk to acceptEdits`
 - `4008d298 fix(agent): support managed permission policies in claude backend`
-- `feat(ui): like-only reactions` (см. патч 5)
+- `c05c6391 feat(ui): like-only reactions, scoped to comments`
 
-(хеши после rebase будут другие, но название коммитов сохранится.)
+(хеши после rebase будут другие, но названия коммитов сохранятся.)
 
 И подтверждение по содержимому:
 ```bash
@@ -177,42 +177,43 @@ script := "#!/bin/sh\n" +
 
 ---
 
-### Патч 5 — like-only reactions (UI)
+### Патч 5 — like-only reactions, scoped to comments (UI)
 
 **Файлы:**
-- `packages/ui/components/common/like-button.tsx` (новый)
-- `packages/ui/components/common/quick-emoji-picker.tsx` (удалён)
+- `packages/ui/components/common/like-button.tsx` *(новый)*
+- `packages/ui/components/common/quick-emoji-picker.tsx` *(удалён)*
 - `packages/ui/components/common/reaction-bar.tsx`
 - `packages/views/issues/components/comment-card.tsx`
-- `packages/views/issues/components/issue-detail.tsx` (убран `<ReactionBar>` из issue body)
+- `packages/views/issues/components/issue-detail.tsx`
 
-**Зачем:** в AITO1 Brain как approve-сигнал используется только 👍 на коммент Planner / Executor / Reflector ([brain/listener/state_machine.py](../../arcadia/taxi/ai/aito1/brain/listener/state_machine.py), `_on_reaction_added`). Остальные эмодзи на коммент агентов system'ом игнорируются — но в UI их можно ставить, что путает пользователя («поставила 🎉, а ничего не произошло»). Убираем emoji-picker на коммент-уровне, оставляем одну тоггл-кнопку «👍».
+**Коммит:** `c05c6391`
 
-Проектный picker (выбор иконки проекта) использует тот же `EmojiPicker`, его трогать **нельзя** — оставлен.
+**Зачем:** Brain как approve-сигнал слушает только 👍 на комментарии Planner / Executor / Reflector (см. `_on_reaction_added` в `brain/listener/state_machine.py` репозитория AITO1). Остальные эмодзи и `issue_reaction` система игнорирует — но UI это позволял ставить, и пользователь не понимал, почему ничего не произошло. Сводим UI к единственному действию: «👍» на коммент.
 
 **Что изменено:**
 
-1. Создан `LikeButton` — одна кнопка `<button onClick={() => onToggle("👍")}>👍</button>`. Тогглит лайк через тот же `useToggleCommentReaction` / `useToggleIssueReaction` — хук сам делает add/remove по существующей реакции текущего юзера.
-2. В `reaction-bar.tsx`:
-   - Импорт `QuickEmojiPicker` → `LikeButton`.
-   - Добавлено `userAlreadyLiked = grouped.some(g => g.emoji === "👍" && g.reacted)`.
-   - `{!hideAddButton && <QuickEmojiPicker onSelect={onToggle} />}` → `{!hideAddButton && !userAlreadyLiked && <LikeButton onToggle={onToggle} />}` — кнопка скрывается, когда юзер уже лайкнул (тоггл доступен через сам бейдж в группе).
-3. В `comment-card.tsx` (две точки — top-level и threaded reply): `<QuickEmojiPicker onSelect={…} align="end" />` **полностью удалён из шапки коммента** (рядом с copy/edit/delete). Дубль с `<ReactionBar>` снизу — единое место для лайка остаётся в футере коммента.
-4. `quick-emoji-picker.tsx` удалён (use-site'ов больше нет). `emoji-picker.tsx` оставлен — используется в `project-detail.tsx` / `create-project.tsx`.
-5. В `issue-detail.tsx` удалён `<ReactionBar reactions={issueReactions} … />` под description-editor'ом — лайки на сам текст задачи Brain игнорирует (state machine реагирует только на `comment_reaction`, не на `issue_reaction`), а в UI они путали пользователя. Заодно убраны импорт `useIssueReactions` / `ReactionBar` и деструктуринг hook'а — стали dead. **Сам hook `use-issue-reactions.ts` оставлен** (экспортируется из `hooks/index.ts` как часть upstream API, тесты `issue-detail.test.tsx` его mock'ают через `listIssueReactions`) — удаление породило бы merge-конфликты. Бекенд `issue_reaction` table / `IssueReaction` handler / WS-event тоже не трогаются.
+1. **Новый `LikeButton`** — одна кнопка-тоггл `onClick={() => onToggle("👍")}`. Add/remove по уже существующей реакции текущего юзера разруливает сам хук (`useToggleCommentReaction` / `useToggleIssueReaction`), кнопка про это не знает.
+2. **`reaction-bar.tsx`** — `QuickEmojiPicker` заменён на `LikeButton`. Кнопка скрывается, если юзер уже лайкнул (`userAlreadyLiked = grouped.some(g => g.emoji === "👍" && g.reacted)`) — тоггл-снять остаётся доступен кликом по самому бейджу в группе.
+3. **`comment-card.tsx`** — picker из шапки коммента (рядом с copy / edit / delete, обе точки: top-level и threaded reply) **удалён целиком**. Лайк живёт в `<ReactionBar>` под телом коммента — это единственное место.
+4. **`issue-detail.tsx`** — `<ReactionBar reactions={issueReactions} …>` под description-editor'ом убран. Импорт `ReactionBar` / `useIssueReactions` и деструктуринг хука вычищены как dead code.
+5. **`quick-emoji-picker.tsx`** удалён — use-site'ов больше нет. **`emoji-picker.tsx` оставлен** — используется для иконок проектов в `project-detail.tsx` / `create-project.tsx`.
 
-**Бекенд (`server/internal/handler/reaction.go`) не трогается** — single-user, прямого API-доступа извне нет, defense-in-depth избыточен. Если когда-нибудь подключим внешние клиенты, добавить whitelist `emoji != "👍" → 400` — отдельным патчем 5b.
+**Что НЕ трогаем (намеренно):**
 
-**Тесты:** `pnpm --filter @multica/views test` зелёный (327/327), `pnpm --filter @multica/ui --filter @multica/views typecheck` чист, lint без новых warning'ов.
+- **Хук `use-issue-reactions.ts`** — экспортируется из `packages/views/issues/hooks/index.ts` как часть upstream API; `issue-detail.test.tsx` mock'ает его через `listIssueReactions`. Удаление породило бы лишние merge-конфликты.
+- **Бекенд** (`server/internal/handler/reaction.go`, `issue_reaction` / `comment_reaction` таблицы, WS-events `issue_reaction:added` / `comment_reaction:added`) — single-user, прямого API-доступа извне нет, defense-in-depth избыточен. Если когда-нибудь подключим внешних клиентов, добавить whitelist `emoji != "👍" → 400` отдельным патчем 5b.
+- **`EmojiPicker`** в `packages/ui/components/common/emoji-picker.tsx` — нужен для иконок проектов.
+
+**Проверки после правки:** `pnpm --filter @multica/views test` (327/327 ✅), `pnpm --filter @multica/ui --filter @multica/views typecheck` (чисто), `lint` без новых warning'ов.
 
 **Если конфликт при merge/rebase:**
 
 | Конфликт | Что делать |
 |---|---|
-| Upstream вернул `QuickEmojiPicker` обратно (например, добавил новые quick-emojis) | Удалить upstream-версию `quick-emoji-picker.tsx`, наш `like-button.tsx` оставить. В `reaction-bar.tsx` и `comment-card.tsx` оставить `LikeButton`-вариант. |
-| Upstream отрефакторил `ReactionBar` (новый props, другая структура grouped) | Сохранить логику `userAlreadyLiked` (через любую derived from grouped), `<LikeButton onToggle={onToggle} />` оставить вместо нового пикера. |
-| Upstream добавил третью точку использования picker'а в коммент-UI | Удалить целиком — лайк живёт только в `<ReactionBar>` снизу коммента, не в шапке. |
-| Upstream вернул `<ReactionBar>` в `issue-detail.tsx` (под description) | Удалить блок повторно, заодно убрать импорт `ReactionBar` / `useIssueReactions` если они стали unused. Сам hook оставить. |
+| Upstream вернул `QuickEmojiPicker` (новые quick-emojis, ребрендинг) | Удалить upstream-файл, наш `like-button.tsx` оставить. В `reaction-bar.tsx` оставить `LikeButton` + логику `userAlreadyLiked`. |
+| Upstream отрефакторил `ReactionBar` (новые props, другая структура grouped) | Перенести `userAlreadyLiked` (любой derived-флаг по 👍 текущего юзера) и `<LikeButton onToggle={onToggle} />` на новые props; пикер не возвращать. |
+| Upstream добавил новую точку использования picker'а в коммент-UI (шапка / hover-row / inline) | Удалить целиком. Единственное разрешённое место для add-like — `<ReactionBar>` под телом коммента. |
+| Upstream вернул `<ReactionBar>` в `issue-detail.tsx` (под description) | Удалить блок и зачистить ставшие unused импорты `ReactionBar` / `useIssueReactions` + деструктуринг хука. Сам файл `use-issue-reactions.ts` оставить. |
 
 ---
 
