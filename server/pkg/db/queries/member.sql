@@ -31,3 +31,9 @@ FROM member m
 JOIN "user" u ON u.id = m.user_id
 WHERE m.workspace_id = $1
 ORDER BY m.created_at ASC;
+
+-- name: IsMemberServiceAccount :one
+SELECT is_service_account FROM member WHERE id = $1;
+
+-- name: SetMemberServiceAccount :exec
+UPDATE member SET is_service_account = $2 WHERE id = $1;

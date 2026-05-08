@@ -14,7 +14,7 @@ import (
 const createMember = `-- name: CreateMember :one
 INSERT INTO member (workspace_id, user_id, role)
 VALUES ($1, $2, $3)
-RETURNING id, workspace_id, user_id, role, created_at
+RETURNING id, workspace_id, user_id, role, created_at, is_service_account
 `
 
 type CreateMemberParams struct {
@@ -32,6 +32,7 @@ func (q *Queries) CreateMember(ctx context.Context, arg CreateMemberParams) (Mem
 		&i.UserID,
 		&i.Role,
 		&i.CreatedAt,
+		&i.IsServiceAccount,
 	)
 	return i, err
 }
@@ -46,7 +47,7 @@ func (q *Queries) DeleteMember(ctx context.Context, id pgtype.UUID) error {
 }
 
 const getMember = `-- name: GetMember :one
-SELECT id, workspace_id, user_id, role, created_at FROM member
+SELECT id, workspace_id, user_id, role, created_at, is_service_account FROM member
 WHERE id = $1
 `
 
@@ -59,12 +60,13 @@ func (q *Queries) GetMember(ctx context.Context, id pgtype.UUID) (Member, error)
 		&i.UserID,
 		&i.Role,
 		&i.CreatedAt,
+		&i.IsServiceAccount,
 	)
 	return i, err
 }
 
 const getMemberByUserAndWorkspace = `-- name: GetMemberByUserAndWorkspace :one
-SELECT id, workspace_id, user_id, role, created_at FROM member
+SELECT id, workspace_id, user_id, role, created_at, is_service_account FROM member
 WHERE user_id = $1 AND workspace_id = $2
 `
 
@@ -82,12 +84,24 @@ func (q *Queries) GetMemberByUserAndWorkspace(ctx context.Context, arg GetMember
 		&i.UserID,
 		&i.Role,
 		&i.CreatedAt,
+		&i.IsServiceAccount,
 	)
 	return i, err
 }
 
+const isMemberServiceAccount = `-- name: IsMemberServiceAccount :one
+SELECT is_service_account FROM member WHERE id = $1
+`
+
+func (q *Queries) IsMemberServiceAccount(ctx context.Context, id pgtype.UUID) (bool, error) {
+	row := q.db.QueryRow(ctx, isMemberServiceAccount, id)
+	var is_service_account bool
+	err := row.Scan(&is_service_account)
+	return is_service_account, err
+}
+
 const listMembers = `-- name: ListMembers :many
-SELECT id, workspace_id, user_id, role, created_at FROM member
+SELECT id, workspace_id, user_id, role, created_at, is_service_account FROM member
 WHERE workspace_id = $1
 ORDER BY created_at ASC
 `
@@ -107,6 +121,7 @@ func (q *Queries) ListMembers(ctx context.Context, workspaceID pgtype.UUID) ([]M
 			&i.UserID,
 			&i.Role,
 			&i.CreatedAt,
+			&i.IsServiceAccount,
 		); err != nil {
 			return nil, err
 		}
@@ -167,10 +182,24 @@ func (q *Queries) ListMembersWithUser(ctx context.Context, workspaceID pgtype.UU
 	return items, nil
 }
 
+const setMemberServiceAccount = `-- name: SetMemberServiceAccount :exec
+UPDATE member SET is_service_account = $2 WHERE id = $1
+`
+
+type SetMemberServiceAccountParams struct {
+	ID               pgtype.UUID `json:"id"`
+	IsServiceAccount bool        `json:"is_service_account"`
+}
+
+func (q *Queries) SetMemberServiceAccount(ctx context.Context, arg SetMemberServiceAccountParams) error {
+	_, err := q.db.Exec(ctx, setMemberServiceAccount, arg.ID, arg.IsServiceAccount)
+	return err
+}
+
 const updateMemberRole = `-- name: UpdateMemberRole :one
 UPDATE member SET role = $2
 WHERE id = $1
-RETURNING id, workspace_id, user_id, role, created_at
+RETURNING id, workspace_id, user_id, role, created_at, is_service_account
 `
 
 type UpdateMemberRoleParams struct {
@@ -187,6 +216,7 @@ func (q *Queries) UpdateMemberRole(ctx context.Context, arg UpdateMemberRolePara
 		&i.UserID,
 		&i.Role,
 		&i.CreatedAt,
+		&i.IsServiceAccount,
 	)
 	return i, err
 }
