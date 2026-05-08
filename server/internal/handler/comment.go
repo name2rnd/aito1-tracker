@@ -253,8 +253,13 @@ func (h *Handler) CreateComment(w http.ResponseWriter, r *http.Request) {
 	// (handled by authorType == "member" check below).
 	// Skip when the comment @mentions others but not the assignee agent —
 	// the user is talking to someone else, not requesting work from the assignee.
+	// Skip when the comment is from a service-account member (e.g. AITO1's
+	// Teamlead writing audit comments after Brain reassigns the issue): such
+	// comments are notifications, not requests for work, so they must not
+	// double-trigger the agent that was just assigned.
 	if authorType == "member" && h.shouldEnqueueOnComment(r.Context(), issue) &&
-		!h.commentMentionsOthersButNotAssignee(comment.Content, issue) {
+		!h.commentMentionsOthersButNotAssignee(comment.Content, issue) &&
+		!h.isServiceAccountMember(r.Context(), authorID) {
 		if _, err := h.TaskService.EnqueueTaskForIssue(r.Context(), issue, comment.ID); err != nil {
 			slog.Warn("enqueue agent task on comment failed", "issue_id", issueID, "error", err)
 		}
@@ -299,6 +304,28 @@ func (h *Handler) commentMentionsOthersButNotAssignee(content string, issue db.I
 		}
 	}
 	return true // Others mentioned but not assignee — suppress trigger
+}
+
+// isServiceAccountMember reports whether a member is flagged as a service
+// account (member.is_service_account = true). Service-account members are
+// typically integration accounts (e.g. AITO1's Teamlead) whose comments
+// are status updates, not requests for agent work — so they must not
+// trigger on_comment-tasks even when posted on agent-assigned issues.
+//
+// Errors (member not found, DB hiccup) default to FALSE: failing closed
+// here would silently disable Human comments on every transient DB
+// failure, which is a much worse UX than letting an extra agent task
+// slip through.
+func (h *Handler) isServiceAccountMember(ctx context.Context, memberID string) bool {
+	id := parseUUID(memberID)
+	if !id.Valid {
+		return false
+	}
+	isSvc, err := h.Queries.IsMemberServiceAccount(ctx, id)
+	if err != nil {
+		return false
+	}
+	return isSvc
 }
 
 // enqueueMentionedAgentTasks parses @agent mentions from comment content and

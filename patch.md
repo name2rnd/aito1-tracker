@@ -378,6 +378,28 @@ go build ./server/... && go test ./server/pkg/agent/... -count=1
 | Upstream добавил настраиваемую ширину колонки в view-store | Использовать новый механизм, дефолт уменьшить на 30%. |
 | Upstream поменял порядок в `STATUS_ORDER` / `ALL_STATUSES` / `BOARD_STATUSES` | Принять upstream, переставить `blocked` перед `done` во всех трёх массивах. |
 
+### Патч 9 — service-account флаг на member: подавление on_comment-trigger
+
+**Файлы:**
+- `server/migrations/069_member_service_account.up.sql` (+ `.down.sql`) — `ALTER TABLE member ADD COLUMN IF NOT EXISTS is_service_account BOOLEAN NOT NULL DEFAULT FALSE`
+- `server/pkg/db/queries/member.sql` — две новые sqlc-query: `IsMemberServiceAccount`, `SetMemberServiceAccount`
+- `server/pkg/db/generated/*.go` — авто-сгенерировано через `sqlc generate`
+- `server/internal/handler/comment.go` — в блоке on-comment-trigger (~строка 256) добавлено условие `&& !h.isServiceAccountMember(r.Context(), authorID)` + helper `isServiceAccountMember`
+
+**Зачем:** AITO1-Brain под учёткой Teamlead (member, role=admin) пишет в треде issue служебные комменты — `closing-comment` после рефлексии, `✅ Auto-approved` после auto-approve gate (см. `~/arcadia/taxi/ai/aito1/docs/auto-approve.md`). По умолчанию multica запускает on_comment-trigger на любой member-коммент в issue с агентом-assignee, и эти служебные комменты вызывают **дубль task-а** для уже ассайненного агента (Executor). Workaround через `@<Human-id>` mention есть, но он хрупкий — привязан к специфике mentions-парсера. Service-account флаг — чистое решение: явная семантика «этот member пишет уведомления, не запросы на работу».
+
+**Что изменено:** новая колонка `member.is_service_account` (default false → не ломает существующие установки). Comment-handler пропускает on_comment-trigger когда автор-member помечен как service-account. Сам флаг ставится снаружи (через SQL update / sqlc `SetMemberServiceAccount`); установщик AITO1 ставит его на Teamlead member-а после создания workspace (см. соответствующие правки в `install/phases/60_workspace.sh`).
+
+Errors при чтении флага (DB hiccup, member отсутствует) → дефолт `false`, чтобы не ломать Human-комменты на каждом транзиенте — fail-closed здесь хуже UX, чем редкий лишний task.
+
+**Если конфликт при merge/rebase с upstream:**
+
+| Конфликт | Что делать |
+|---|---|
+| Upstream поменял условие в `comment.go:256-261` | Принять upstream, добавить `&& !h.isServiceAccountMember(r.Context(), authorID)` к итоговому условию. |
+| Upstream добавил свои member-колонки и переписал `member.sql` queries | Сохранить наши `IsMemberServiceAccount` / `SetMemberServiceAccount` query, перегенерить через `sqlc generate`. |
+| Upstream добавил миграцию с номером ≥ 069 | Передвинуть наш файл `069_*.up.sql` / `.down.sql` на следующий свободный номер (070+). |
+
 ---
 
 ## Связанные правки **вне** этого репо (для полноты картины)
