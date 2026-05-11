@@ -260,6 +260,48 @@ script := "#!/bin/sh\n" +
 
 ---
 
+### Патч 7 — `CLAUDE_CODE_DISABLE_AUTO_MEMORY=1` для всех агентов
+
+**Файл:** `server/pkg/agent/claude.go`
+**Зачем:** Claude Code CLI (v2.1.59+) имеет встроенную auto-memory, которая пишет в `~/.claude/projects/<workspace>/memory/MEMORY.md` и подгружает первые 200 строк в каждую сессию. Это **конфликтует** с архитектурой AITO1: Brain — единственный владелец памяти (`aito1_facts` / `aito1_procedural` / `aito1_knowledges`), а параллельный нерегулируемый storage в `~/.claude` обходит весь governance (provenance, bi-temporal, event log, Pydantic-schema).
+
+**Что изменено:**
+
+В `buildEnv` после `mergeEnv` явно дописываем переменную, потому что `mergeEnv → isFilteredChildEnvKey` срезает все `CLAUDE_CODE_*` из parent env'а:
+
+```go
+func buildEnv(extra map[string]string) []string {
+    env := mergeEnv(os.Environ(), extra)
+    // AITO1-patch: disable Claude Code built-in auto-memory for all pipeline
+    // agents (Planner / Executor / Reflector / Auditor). Conflicts with
+    // aito1_facts / aito1_procedural / aito1_knowledges — Brain is the single
+    // owner of memory. Interactive `claude` sessions run by Human directly are
+    // unaffected — env var applies only to subprocesses spawned by this daemon.
+    // `mergeEnv` strips CLAUDE_CODE_* from parent env via isFilteredChildEnvKey,
+    // so we inject the flag after the filter to guarantee it's set.
+    env = append(env, "CLAUDE_CODE_DISABLE_AUTO_MEMORY=1")
+    return env
+}
+```
+
+**Проверка после правки:**
+
+```bash
+# Перезапусти daemon
+launchctl kickstart -k gui/$(id -u)/ai.aito1.multica.daemon
+# Запусти любую задачу через AITO1
+# Проверь, что новых memory-папок для pipeline-агентов не создаётся:
+find ~/.claude/projects -type d -name memory -newer /tmp/aito1_memory_stamp
+```
+
+**Если конфликт при merge/rebase:** если upstream рефакторит `buildEnv` (новая сигнатура, добавляется dependency injection) — главное сохранить, что переменная **гарантированно** доходит до child-процесса. Проще всего: добавить `extra["CLAUDE_CODE_DISABLE_AUTO_MEMORY"] = "1"` непосредственно перед `mergeEnv`, либо хардкодом в массив после filter'а — конкретное место не важно, важна семантика «всегда установлено в subprocess».
+
+**Связано в AITO1 репо:**
+- `plans/memory-system-design.md` §6.13 — обоснование решения.
+- `docs/memory-system.md` — раздел «Auto-memory Claude Code — отключена».
+
+---
+
 ## Если конфликт при merge/rebase
 
 `server/pkg/agent/claude.go` — самый горячий файл (upstream активно его дорабатывает). Шаблон resolution:

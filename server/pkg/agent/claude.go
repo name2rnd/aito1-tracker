@@ -495,7 +495,16 @@ func resolveSessionID(requestedResume, emitted string, failed bool) string {
 }
 
 func buildEnv(extra map[string]string) []string {
-	return mergeEnv(os.Environ(), extra)
+	env := mergeEnv(os.Environ(), extra)
+	// AITO1-patch: disable Claude Code built-in auto-memory for all pipeline
+	// agents (Planner / Executor / Reflector / Auditor). Conflicts with
+	// aito1_facts / aito1_procedural / aito1_knowledges — Brain is the single
+	// owner of memory. Interactive `claude` sessions run by Human directly are
+	// unaffected — env var applies only to subprocesses spawned by this daemon.
+	// `mergeEnv` strips CLAUDE_CODE_* from parent env via isFilteredChildEnvKey,
+	// so we inject the flag after the filter to guarantee it's set.
+	env = append(env, "CLAUDE_CODE_DISABLE_AUTO_MEMORY=1")
+	return env
 }
 
 func mergeEnv(base []string, extra map[string]string) []string {
