@@ -90,11 +90,20 @@ func (q *Queries) GetMemberByUserAndWorkspace(ctx context.Context, arg GetMember
 }
 
 const isMemberServiceAccount = `-- name: IsMemberServiceAccount :one
-SELECT is_service_account FROM member WHERE id = $1
+SELECT is_service_account FROM member WHERE workspace_id = $1 AND user_id = $2
 `
 
-func (q *Queries) IsMemberServiceAccount(ctx context.Context, id pgtype.UUID) (bool, error) {
-	row := q.db.QueryRow(ctx, isMemberServiceAccount, id)
+type IsMemberServiceAccountParams struct {
+	WorkspaceID pgtype.UUID `json:"workspace_id"`
+	UserID      pgtype.UUID `json:"user_id"`
+}
+
+// comment.go calls this with the comment author's user_id (resolveActor
+// returns userID for member-typed actors). Look up via (workspace_id, user_id)
+// — the natural unique key — instead of member.id, otherwise the check
+// always misses and Teamlead service-account comments still trigger agents.
+func (q *Queries) IsMemberServiceAccount(ctx context.Context, arg IsMemberServiceAccountParams) (bool, error) {
+	row := q.db.QueryRow(ctx, isMemberServiceAccount, arg.WorkspaceID, arg.UserID)
 	var is_service_account bool
 	err := row.Scan(&is_service_account)
 	return is_service_account, err
@@ -183,16 +192,17 @@ func (q *Queries) ListMembersWithUser(ctx context.Context, workspaceID pgtype.UU
 }
 
 const setMemberServiceAccount = `-- name: SetMemberServiceAccount :exec
-UPDATE member SET is_service_account = $2 WHERE id = $1
+UPDATE member SET is_service_account = $3 WHERE workspace_id = $1 AND user_id = $2
 `
 
 type SetMemberServiceAccountParams struct {
-	ID               pgtype.UUID `json:"id"`
+	WorkspaceID      pgtype.UUID `json:"workspace_id"`
+	UserID           pgtype.UUID `json:"user_id"`
 	IsServiceAccount bool        `json:"is_service_account"`
 }
 
 func (q *Queries) SetMemberServiceAccount(ctx context.Context, arg SetMemberServiceAccountParams) error {
-	_, err := q.db.Exec(ctx, setMemberServiceAccount, arg.ID, arg.IsServiceAccount)
+	_, err := q.db.Exec(ctx, setMemberServiceAccount, arg.WorkspaceID, arg.UserID, arg.IsServiceAccount)
 	return err
 }
 

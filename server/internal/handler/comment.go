@@ -259,7 +259,7 @@ func (h *Handler) CreateComment(w http.ResponseWriter, r *http.Request) {
 	// double-trigger the agent that was just assigned.
 	if authorType == "member" && h.shouldEnqueueOnComment(r.Context(), issue) &&
 		!h.commentMentionsOthersButNotAssignee(comment.Content, issue) &&
-		!h.isServiceAccountMember(r.Context(), authorID) {
+		!h.isServiceAccountMember(r.Context(), uuidToString(issue.WorkspaceID), authorID) {
 		if _, err := h.TaskService.EnqueueTaskForIssue(r.Context(), issue, comment.ID); err != nil {
 			slog.Warn("enqueue agent task on comment failed", "issue_id", issueID, "error", err)
 		}
@@ -312,16 +312,25 @@ func (h *Handler) commentMentionsOthersButNotAssignee(content string, issue db.I
 // are status updates, not requests for agent work — so they must not
 // trigger on_comment-tasks even when posted on agent-assigned issues.
 //
+// Looked up by (workspace_id, user_id) — `userID` matches what
+// `resolveActor` returns for member-typed authors (it returns the user's
+// id, not the membership row id). Querying by `member.id` would always
+// miss, silently making the whole check a no-op.
+//
 // Errors (member not found, DB hiccup) default to FALSE: failing closed
 // here would silently disable Human comments on every transient DB
 // failure, which is a much worse UX than letting an extra agent task
 // slip through.
-func (h *Handler) isServiceAccountMember(ctx context.Context, memberID string) bool {
-	id := parseUUID(memberID)
-	if !id.Valid {
+func (h *Handler) isServiceAccountMember(ctx context.Context, workspaceID, userID string) bool {
+	ws := parseUUID(workspaceID)
+	uid := parseUUID(userID)
+	if !ws.Valid || !uid.Valid {
 		return false
 	}
-	isSvc, err := h.Queries.IsMemberServiceAccount(ctx, id)
+	isSvc, err := h.Queries.IsMemberServiceAccount(ctx, db.IsMemberServiceAccountParams{
+		WorkspaceID: ws,
+		UserID:      uid,
+	})
 	if err != nil {
 		return false
 	}

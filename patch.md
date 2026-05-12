@@ -424,9 +424,11 @@ go build ./server/... && go test ./server/pkg/agent/... -count=1
 
 **Файлы:**
 - `server/migrations/069_member_service_account.up.sql` (+ `.down.sql`) — `ALTER TABLE member ADD COLUMN IF NOT EXISTS is_service_account BOOLEAN NOT NULL DEFAULT FALSE`
-- `server/pkg/db/queries/member.sql` — две новые sqlc-query: `IsMemberServiceAccount`, `SetMemberServiceAccount`
+- `server/pkg/db/queries/member.sql` — две sqlc-query: `IsMemberServiceAccount(workspace_id, user_id)`, `SetMemberServiceAccount(workspace_id, user_id, is_service_account)` — ищем по натуральному ключу (workspace_id, user_id), а не по `member.id`, потому что в `comment.go` приходит `user_id` от `resolveActor`, не membership-row id (см. fix ниже).
 - `server/pkg/db/generated/*.go` — авто-сгенерировано через `sqlc generate`
-- `server/internal/handler/comment.go` — в блоке on-comment-trigger (~строка 256) добавлено условие `&& !h.isServiceAccountMember(r.Context(), authorID)` + helper `isServiceAccountMember`
+- `server/internal/handler/comment.go` — в блоке on-comment-trigger (~строка 262) добавлено условие `&& !h.isServiceAccountMember(r.Context(), uuidToString(issue.WorkspaceID), authorID)` + helper `isServiceAccountMember(ctx, workspaceID, userID)`.
+
+**Fix 2026-05-12:** изначальная версия патча искала `WHERE id = $1`, передавая `authorID` (= `user_id` от `resolveActor`). Эти два UUID разные (`member.id ≠ member.user_id`), запрос всегда возвращал ENOENT → default `false` → проверка превращалась в no-op. Симптом проявлялся редко, потому что одновременно работали другие гейты в `shouldEnqueueOnComment` (`isAgentAssigneeReady`, `hasPending`); полностью прорвался, когда Brain начал постить Teamlead-коммент в `auto_approve:needs_human` (assignee=Planner, pending=0). Поправлено переходом на `(workspace_id, user_id)` + изменением сигнатуры handler-helper'а.
 
 **Зачем:** AITO1-Brain под учёткой Teamlead (member, role=admin) пишет в треде issue служебные комменты — `closing-comment` после рефлексии, `✅ Auto-approved` после auto-approve gate (см. `~/arcadia/taxi/ai/aito1/docs/auto-approve.md`). По умолчанию multica запускает on_comment-trigger на любой member-коммент в issue с агентом-assignee, и эти служебные комменты вызывают **дубль task-а** для уже ассайненного агента (Executor). Workaround через `@<Human-id>` mention есть, но он хрупкий — привязан к специфике mentions-парсера. Service-account флаг — чистое решение: явная семантика «этот member пишет уведомления, не запросы на работу».
 
@@ -438,8 +440,8 @@ Errors при чтении флага (DB hiccup, member отсутствует)
 
 | Конфликт | Что делать |
 |---|---|
-| Upstream поменял условие в `comment.go:256-261` | Принять upstream, добавить `&& !h.isServiceAccountMember(r.Context(), authorID)` к итоговому условию. |
-| Upstream добавил свои member-колонки и переписал `member.sql` queries | Сохранить наши `IsMemberServiceAccount` / `SetMemberServiceAccount` query, перегенерить через `sqlc generate`. |
+| Upstream поменял условие в `comment.go:260-262` | Принять upstream, добавить `&& !h.isServiceAccountMember(r.Context(), uuidToString(issue.WorkspaceID), authorID)` к итоговому условию (заметь — `workspace_id` обязателен). |
+| Upstream добавил свои member-колонки и переписал `member.sql` queries | Сохранить наши `IsMemberServiceAccount` / `SetMemberServiceAccount` query (поиск по `(workspace_id, user_id)`), перегенерить через `sqlc generate`. |
 | Upstream добавил миграцию с номером ≥ 069 | Передвинуть наш файл `069_*.up.sql` / `.down.sql` на следующий свободный номер (070+). |
 
 ---

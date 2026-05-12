@@ -33,7 +33,11 @@ WHERE m.workspace_id = $1
 ORDER BY m.created_at ASC;
 
 -- name: IsMemberServiceAccount :one
-SELECT is_service_account FROM member WHERE id = $1;
+-- comment.go calls this with the comment author's user_id (resolveActor
+-- returns userID for member-typed actors). Look up via (workspace_id, user_id)
+-- — the natural unique key — instead of member.id, otherwise the check
+-- always misses and Teamlead service-account comments still trigger agents.
+SELECT is_service_account FROM member WHERE workspace_id = $1 AND user_id = $2;
 
 -- name: SetMemberServiceAccount :exec
-UPDATE member SET is_service_account = $2 WHERE id = $1;
+UPDATE member SET is_service_account = $3 WHERE workspace_id = $1 AND user_id = $2;
