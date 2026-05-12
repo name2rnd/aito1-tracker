@@ -454,6 +454,8 @@ Errors при чтении флага (DB hiccup, member отсутствует)
 
 **Что изменено:** в `CommentCard` через `useActorName()` достаём `getAgentName` / `getMemberName`. Считаем коммент «reactionless» если автор — `agent` с именем ∈ {`Reflector`, `Auditor`} или `member` с именем `Teamlead`. В таком случае `<ReactionBar />` вовсе не рендерится. БД не трогаем — старые реакции остаются как audit-trail.
 
+**Расширение (Naталья 2026-05-12):** условие `!isOwn` тоже добавлено — на собственных member-комментах текущего пользователя бар реакций бессмыслен (лайкать свой коммент незачем), `isOwn = actor_type === "member" && actor_id === currentUserId` уже считалось ниже в том же компоненте.
+
 **Если конфликт при merge/rebase с upstream:** upstream вряд ли тронет `CommentCard`-баррендер. Если тронет — сохранить условие `!isReactionlessActor` рядом с проверкой `!isTemp`.
 
 ---

@@ -348,7 +348,7 @@ function CommentCardImpl({
                   <ReadonlyContent content={entry.content ?? ""} />
                 </div>
                 <AttachmentList attachments={entry.attachments} content={entry.content} className="mt-1.5 pl-10" />
-                {!isTemp && !isReactionlessActor && (
+                {!isTemp && !isReactionlessActor && !isOwn && (
                   <ReactionBar
                     reactions={reactions}
                     currentUserId={currentUserId}
