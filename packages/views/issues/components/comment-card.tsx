@@ -162,7 +162,15 @@ function CommentCardImpl({
   highlightedCommentId,
 }: CommentCardProps) {
   const { t } = useT("issues");
-  const { getActorName } = useActorName();
+  const { getActorName, getAgentName, getMemberName } = useActorName();
+  // AITO1: reactions on Reflector / Auditor / Teamlead comments are a no-op
+  // (Brain ignores them). Hiding the whole bar — including any stale 👍 left
+  // over from the force-promote era — to avoid confusion.
+  const reactionlessAgents = new Set(["Reflector", "Auditor"]);
+  const reactionlessMembers = new Set(["Teamlead"]);
+  const isReactionlessActor =
+    (entry.actor_type === "agent" && reactionlessAgents.has(getAgentName(entry.actor_id))) ||
+    (entry.actor_type === "member" && reactionlessMembers.has(getMemberName(entry.actor_id)));
   const { uploadWithToast } = useFileUpload(api);
   const isCollapsed = useCommentCollapseStore((s) => s.isCollapsed(issueId, entry.id));
   const toggleCollapse = useCommentCollapseStore((s) => s.toggle);
@@ -340,7 +348,7 @@ function CommentCardImpl({
                   <ReadonlyContent content={entry.content ?? ""} />
                 </div>
                 <AttachmentList attachments={entry.attachments} content={entry.content} className="mt-1.5 pl-10" />
-                {!isTemp && (
+                {!isTemp && !isReactionlessActor && (
                   <ReactionBar
                     reactions={reactions}
                     currentUserId={currentUserId}

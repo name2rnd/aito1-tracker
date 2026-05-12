@@ -444,6 +444,18 @@ Errors при чтении флага (DB hiccup, member отсутствует)
 
 ---
 
+### Патч 10 — скрыть ReactionBar на комментах Reflector / Auditor / Teamlead
+
+**Файл:** `packages/views/issues/components/comment-card.tsx`
+
+**Зачем:** AITO1-Brain больше не обрабатывает 👍 на комментах от Reflector / Auditor (agent) и Teamlead (member service-account) — `force_promote` через 👍 на `[REFLECTION]` удалён, а на ack-комменты Teamlead'а Brain никогда не реагировал. Видимый бар реакций (и старые «зависшие» 👍 на исторических REFLECTION-комментах) путал пользователя — было непонятно, что лайк означает и применяется ли действие.
+
+**Что изменено:** в `CommentCard` через `useActorName()` достаём `getAgentName` / `getMemberName`. Считаем коммент «reactionless» если автор — `agent` с именем ∈ {`Reflector`, `Auditor`} или `member` с именем `Teamlead`. В таком случае `<ReactionBar />` вовсе не рендерится. БД не трогаем — старые реакции остаются как audit-trail.
+
+**Если конфликт при merge/rebase с upstream:** upstream вряд ли тронет `CommentCard`-баррендер. Если тронет — сохранить условие `!isReactionlessActor` рядом с проверкой `!isTemp`.
+
+---
+
 ## Связанные правки **вне** этого репо (для полноты картины)
 
 Эти правки лежат в других репо/файлах, но без них наш форк работает не полностью. Они описаны отдельно — здесь только указатели:
