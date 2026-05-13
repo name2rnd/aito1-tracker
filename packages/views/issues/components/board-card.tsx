@@ -90,7 +90,7 @@ export const BoardCardContent = memo(function BoardCardContent({
       <p className="text-xs text-muted-foreground">{issue.identifier}</p>
 
       {/* Row 2: Title */}
-      <p className="mt-1 text-sm font-medium leading-snug line-clamp-3">
+      <p className="mt-1 text-sm font-medium leading-snug line-clamp-5">
         {issue.title}
       </p>
 
