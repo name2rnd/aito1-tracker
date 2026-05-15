@@ -504,6 +504,14 @@ func buildEnv(extra map[string]string) []string {
 	// `mergeEnv` strips CLAUDE_CODE_* from parent env via isFilteredChildEnvKey,
 	// so we inject the flag after the filter to guarantee it's set.
 	env = append(env, "CLAUDE_CODE_DISABLE_AUTO_MEMORY=1")
+	// AITO1-patch: raise per-tool output ceilings. Defaults (25k Read/MCP) are
+	// tuned for desktop Claude Code; AITO1 skills (aito1_recall, wiki, tracker)
+	// regularly return larger payloads — agents waste turns retrying with smaller
+	// `limit` values that the SDK rejects pre-slice. 40k still bounds bloat.
+	env = append(env, "CLAUDE_CODE_FILE_READ_MAX_OUTPUT_TOKENS=40000")
+	env = append(env, "CLAUDE_CODE_MAX_OUTPUT_TOKENS=64000")
+	env = append(env, "MAX_MCP_OUTPUT_TOKENS=40000")
+	env = append(env, "BASH_MAX_OUTPUT_LENGTH=40000")
 	return env
 }
 

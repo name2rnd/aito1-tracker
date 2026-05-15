@@ -77,18 +77,24 @@ func StrToText(s string) pgtype.Text {
 	return pgtype.Text{String: s, Valid: true}
 }
 
+// TimestampToString formats a timestamp with sub-second precision so two
+// events emitted milliseconds apart don't collapse to identical strings —
+// which silently broke timeline ordering when string-compared (an entry
+// created 900 ms after another could outrank it via the UUID tie-breaker).
+// RFC3339Nano remains a strict superset of RFC3339; clients that parse
+// RFC3339 (Date() / dateutil / time.Parse) accept it unchanged.
 func TimestampToString(t pgtype.Timestamptz) string {
 	if !t.Valid {
 		return ""
 	}
-	return t.Time.Format(time.RFC3339)
+	return t.Time.Format(time.RFC3339Nano)
 }
 
 func TimestampToPtr(t pgtype.Timestamptz) *string {
 	if !t.Valid {
 		return nil
 	}
-	s := t.Time.Format(time.RFC3339)
+	s := t.Time.Format(time.RFC3339Nano)
 	return &s
 }
 

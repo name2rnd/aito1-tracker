@@ -36,6 +36,13 @@ type TimelineEntry struct {
 	CommentType *string              `json:"comment_type,omitempty"`
 	Reactions   []ReactionResponse   `json:"reactions,omitempty"`
 	Attachments []AttachmentResponse `json:"attachments,omitempty"`
+
+	// createdAtTime is the unformatted timestamp, used only for server-side
+	// sorting in mergeTimeline*. The serialized CreatedAt is an RFC3339 string,
+	// and comparing strings collapses sub-second precision — the tie-breaker
+	// then fell back to UUID order and put newer entries below older ones.
+	// Unexported → omitted from JSON automatically.
+	createdAtTime time.Time
 }
 
 // TimelineResponse wraps the cursor-paginated timeline. Entries are sorted
@@ -462,8 +469,8 @@ func (h *Handler) mergeTimelineDesc(r *http.Request, comments []db.Comment, acti
 		out = append(out, activityToEntry(a))
 	}
 	sort.Slice(out, func(i, j int) bool {
-		if out[i].CreatedAt != out[j].CreatedAt {
-			return out[i].CreatedAt > out[j].CreatedAt
+		if !out[i].createdAtTime.Equal(out[j].createdAtTime) {
+			return out[i].createdAtTime.After(out[j].createdAtTime)
 		}
 		return out[i].ID > out[j].ID
 	})
@@ -484,8 +491,8 @@ func (h *Handler) mergeTimelineAscThenReverse(r *http.Request, comments []db.Com
 		out = append(out, activityToEntry(a))
 	}
 	sort.Slice(out, func(i, j int) bool {
-		if out[i].CreatedAt != out[j].CreatedAt {
-			return out[i].CreatedAt < out[j].CreatedAt
+		if !out[i].createdAtTime.Equal(out[j].createdAtTime) {
+			return out[i].createdAtTime.Before(out[j].createdAtTime)
 		}
 		return out[i].ID < out[j].ID
 	})
@@ -519,17 +526,18 @@ func (h *Handler) commentsToEntries(r *http.Request, comments []db.Comment) []Ti
 		updatedAt := timestampToString(c.UpdatedAt)
 		cid := uuidToString(c.ID)
 		out[i] = TimelineEntry{
-			Type:        "comment",
-			ID:          cid,
-			ActorType:   c.AuthorType,
-			ActorID:     uuidToString(c.AuthorID),
-			Content:     &content,
-			CommentType: &commentType,
-			ParentID:    uuidToPtr(c.ParentID),
-			CreatedAt:   timestampToString(c.CreatedAt),
-			UpdatedAt:   &updatedAt,
-			Reactions:   reactions[cid],
-			Attachments: attachments[cid],
+			Type:          "comment",
+			ID:            cid,
+			ActorType:     c.AuthorType,
+			ActorID:       uuidToString(c.AuthorID),
+			Content:       &content,
+			CommentType:   &commentType,
+			ParentID:      uuidToPtr(c.ParentID),
+			CreatedAt:     timestampToString(c.CreatedAt),
+			UpdatedAt:     &updatedAt,
+			Reactions:     reactions[cid],
+			Attachments:   attachments[cid],
+			createdAtTime: c.CreatedAt.Time,
 		}
 	}
 	return out
@@ -542,13 +550,14 @@ func activityToEntry(a db.ActivityLog) TimelineEntry {
 		actorType = a.ActorType.String
 	}
 	return TimelineEntry{
-		Type:      "activity",
-		ID:        uuidToString(a.ID),
-		ActorType: actorType,
-		ActorID:   uuidToString(a.ActorID),
-		Action:    &action,
-		Details:   a.Details,
-		CreatedAt: timestampToString(a.CreatedAt),
+		Type:          "activity",
+		ID:            uuidToString(a.ID),
+		ActorType:     actorType,
+		ActorID:       uuidToString(a.ActorID),
+		Action:        &action,
+		Details:       a.Details,
+		CreatedAt:     timestampToString(a.CreatedAt),
+		createdAtTime: a.CreatedAt.Time,
 	}
 }
 
