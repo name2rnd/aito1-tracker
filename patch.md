@@ -302,6 +302,121 @@ find ~/.claude/projects -type d -name memory -newer /tmp/aito1_memory_stamp
 
 ---
 
+### Патч 8 — поднять лимиты на вывод инструментов
+
+**Файл:** `server/pkg/agent/claude.go`
+**Зачем:** Дефолты Claude Code (25k токенов на `Read`/MCP-вывод, ~25k на `Bash` до сброса в файл) рассчитаны на десктоп-сценарий, когда юзер сам решает, как читать большой файл. У AITO1 скиллы вроде `aito1_recall`, `wiki-cli.sh show`, `tracker-cli.sh show` штатно возвращают 30–90 КБ — агент упирается в лимит, 3-4 раза подряд снижает `limit=N` (Claude Code SDK считает токены **до** применения limit, отказ повторяется), теряет ~30 секунд на ровном месте.
+
+**Что изменено:**
+
+В `buildEnv`, рядом с патчем 7, дописываем четыре переменные:
+
+```go
+env = append(env, "CLAUDE_CODE_FILE_READ_MAX_OUTPUT_TOKENS=40000")
+env = append(env, "CLAUDE_CODE_MAX_OUTPUT_TOKENS=64000")
+env = append(env, "MAX_MCP_OUTPUT_TOKENS=40000")
+env = append(env, "BASH_MAX_OUTPUT_LENGTH=40000")
+```
+
+`mergeEnv → isFilteredChildEnvKey` срезает все `CLAUDE_CODE_*` из parent env'а, поэтому переменные пишутся **после** фильтра — иначе значение из родительской shell-сессии пользователя протекло бы и затёрло наш дефолт.
+
+**Почему 40k, а не 100k:** Anthropic ставит дефолт 25k не от жадности — большой single-shot вывод раздувает контекст агента и ухудшает рассуждение. 40k закрывает текущие AITO1-кейсы и оставляет защиту от «всю вики в одну Read'у».
+
+**Параллельная задача:** разобраться, почему `aito1_recall` штатно отдаёт 31k токенов одному агенту — это симптом, а не норма. Лимит — только пластырь.
+
+**Проверка после правки:**
+
+```bash
+# Пересборка + деплой multica (см. memory: reference_multica_build_and_deploy.md).
+launchctl kickstart -k gui/$(id -u)/ai.aito1.multica.daemon
+# Прогнать любую задачу с большим recall'ом и убедиться, что в trace нет
+# "File content (N tokens) exceeds maximum allowed tokens (25000)":
+psql -h localhost -p 5433 aito1 -tAc \
+  "SELECT output FROM task_message WHERE output LIKE '%exceeds maximum allowed tokens%' AND created_at > now() - interval '1 hour';"
+```
+
+**Если конфликт при merge/rebase:** см. патч 7 — то же правило, главное чтобы `env = append(env, "CLAUDE_CODE_FILE_READ_MAX_OUTPUT_TOKENS=…")` оказался **после** `mergeEnv`. Если апстрим унифицирует env-конфиг в отдельный helper — перенести три CLAUDE_CODE_*-переменные туда (MAX_MCP_OUTPUT_TOKENS и BASH_MAX_OUTPUT_LENGTH `isFilteredChildEnvKey` не режет — их можно ставить где угодно или вообще отдать на откуп оператору).
+
+**Связано в AITO1 репо:**
+- `memory/reference_blocking_skills_for_e2e.md` — про работу с большими выдачами скиллов.
+
+---
+
+### Патч 9 — sub-second precision в timeline ordering
+
+**Файлы:** `server/internal/util/pgx.go`, `server/internal/handler/activity.go`
+**Зачем:** Коммент Teamlead'а (Brain auto-approve hint, `member`-автор) в UI отображался **выше** Planner-коммента (`agent`-автор), хотя Brain постит его на ~900 мс позже Planner-плана. Хронологически правильный порядок — Planner сверху (создан раньше), Brain ниже.
+
+**Корневая причина:**
+1. `util.TimestampToString` форматировал через `time.RFC3339` без долей секунды → два события с разницей < 1 сек получали идентичную строку `2026-05-15T09:23:45+03:00`.
+2. `mergeTimelineDesc` / `mergeTimelineAscThenReverse` в `handler/activity.go` сравнивали `TimelineEntry.CreatedAt` как строку. При равенстве срабатывал tie-breaker по `out[i].ID > out[j].ID` (UUID лексикографически DESC). UUID Planner'а случайно оказался лексикографически больше UUID Teamlead'а, поэтому Planner попадал первым в DESC-массив, Teamlead — вторым.
+3. UI делает `flat.reverse()` в `use-issue-timeline.ts` → ASC массив `[Teamlead, Planner]` → Teamlead визуально выше / раньше.
+
+**Что изменено:**
+
+```go
+// util/pgx.go
+func TimestampToString(t pgtype.Timestamptz) string {
+    if !t.Valid { return "" }
+    return t.Time.Format(time.RFC3339Nano)  // было: time.RFC3339
+}
+// TimestampToPtr — аналогично
+```
+
+```go
+// handler/activity.go — TimelineEntry: добавлено приватное поле для сортировки
+type TimelineEntry struct {
+    // ... existing exported fields ...
+    createdAtTime time.Time  // не сериализуется (lowercase), хранит точный pgtype.Timestamptz.Time
+}
+
+// commentsToEntries / activityToEntry — заполняют createdAtTime: c.CreatedAt.Time / a.CreatedAt.Time
+
+// mergeTimelineDesc / mergeTimelineAscThenReverse — теперь сравнивают по time.Time:
+sort.Slice(out, func(i, j int) bool {
+    if !out[i].createdAtTime.Equal(out[j].createdAtTime) {
+        return out[i].createdAtTime.After(out[j].createdAtTime)  // или .Before для ASC
+    }
+    return out[i].ID > out[j].ID  // или < для ASC
+})
+```
+
+**Почему «гибридный» вариант (C):**
+- Только `RFC3339Nano` в `TimestampToString` — лечит сериализацию, но оставляет string-сравнение в Go (хрупкий антипаттерн, легко регрессирует если кто-то добавит ещё одно поле сортировки).
+- Только сортировка по `time.Time` — лечит порядок, но клиент всё равно получает truncated timestamps в JSON, что вредит другим клиентам (mobile / автотесты).
+- Гибрид: точные байты на проводе + сортировка по типу-данных. Серверная сортировка не зависит от строки.
+
+**Совместимость:**
+- `RFC3339Nano` — strict superset RFC3339. JavaScript `new Date(...)`, Python `dateutil.parser.parse`, Go `time.Parse(time.RFC3339Nano, ...)` все понимают и `2026-05-15T09:23:45+03:00`, и `2026-05-15T09:23:45.040154+03:00`. Парсер курсора (`entryTimestamp` в `activity.go:559`) уже использовал `RFC3339Nano` — совместимость подтверждена.
+- `Format(time.RFC3339Nano)` отбрасывает trailing zeros: время с миллисекундами `.040` форматируется как `.04`, а ровное по секунде — как RFC3339 без точки. Парсеры это понимают.
+
+**Проверка после правки:**
+
+```bash
+# Микросекунды должны быть видны на /timeline:
+TOKEN=$(jq -r .token ~/.multica/profiles/aito1/config.json)
+WS=$(jq -r .workspace_id ~/.multica/profiles/aito1/config.json)
+curl -s -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:8090/api/issues/<issue_id>/timeline?limit=20&workspace_id=$WS" \
+  | jq '.entries | reverse | [.[] | {type, actor_type, created_at}]'
+# Должно показывать формат "2026-05-15T09:23:45.040154+03:00", и Planner-коммент идёт раньше Teamlead-коммента.
+
+# Тесты прошли:
+cd ~/Documents/Projects/aito1-tracker/server
+go test ./internal/handler/... -run 'Timeline|Comment' -count=1
+go test ./internal/util/... -count=1
+```
+
+**Если конфликт при merge/rebase:**
+- Если upstream переходит на `pgtype.Timestamptz`-serializer или меняет `RFC3339` → `RFC3339Nano` сам — наш патч становится no-op в `pgx.go`, оставить только изменения в `activity.go`.
+- Если upstream меняет структуру `TimelineEntry` (добавляет поля, переименовывает) — главное сохранить, что сортировка идёт **не по string**, а по `time.Time` (или по `pgtype.Timestamptz.Time`).
+- Если upstream переименовывает `mergeTimelineDesc` → искать любые `sort.Slice` по `CreatedAt`-строкам, лечить аналогично.
+
+**Связано в AITO1 репо:**
+- Симптом обнаружен на задаче `a5ceb280-35a0-4089-a182-42a6cde98989` (AIT-222).
+
+---
+
 ## Если конфликт при merge/rebase
 
 `server/pkg/agent/claude.go` — самый горячий файл (upstream активно его дорабатывает). Шаблон resolution:
@@ -397,17 +512,17 @@ go build ./server/... && go test ./server/pkg/agent/... -count=1
 
 ---
 
-### Патч 8 — Board: компактные колонки + 3-строчный заголовок + порядок blocked/done
+### Патч 8 — Board: компактные колонки + 5-строчный заголовок + порядок blocked/done
 
 **Файлы:**
 - `packages/views/issues/components/board-column.tsx` — `w-[280px]` → `w-[196px]`
 - `packages/views/issues/components/board-view.tsx` — DragOverlay `w-[280px]` → `w-[196px]` (синхронно с шириной колонки)
-- `packages/views/issues/components/board-card.tsx` — `line-clamp-2` → `line-clamp-3` на заголовке
+- `packages/views/issues/components/board-card.tsx` — `line-clamp-2` → `line-clamp-5` на заголовке
 - `packages/core/issues/config/status.ts` — `blocked` поставлен перед `done` в `STATUS_ORDER`, `ALL_STATUSES`, `BOARD_STATUSES`
 
 **Зачем:** при работе с AITO1 на маке хочется видеть больше колонок одновременно (todo / in_progress / in_review / blocked / done) без горизонтального скролла. Заголовки задач длинные («Изучить, что такое Стефания (корпоративный инструмент)») — двух строк мало, обрезается полезное. Логически `blocked` — это активный статус, требующий внимания (агент упёрся в `[BLOCKED]` / `[PLAN BLOCKED]`), и должен соседствовать с `in_review`, а не уходить за финальный `done`.
 
-**Что изменено:** ширина board-колонки уменьшена на 30% (280 → 196), DragOverlay подгоняется к колонке, в карточке заголовок занимает до 3 строк, `blocked` идёт перед `done`.
+**Что изменено:** ширина board-колонки уменьшена на 30% (280 → 196), DragOverlay подгоняется к колонке, в карточке заголовок занимает до 5 строк (2026-05-13: 3→5, потому что после сужения колонок строки стали короче и трёх рядов всё равно мало под полные русские заголовки), `blocked` идёт перед `done`.
 
 `HiddenColumnsPanel` (240px) **не трогали** — это сайдбар скрытых колонок, не карточка. Если визуально просядет — поменяем отдельно.
 
@@ -416,7 +531,7 @@ go build ./server/... && go test ./server/pkg/agent/... -count=1
 | Конфликт | Что делать |
 |---|---|
 | Upstream поменял `w-[280px]` в `board-column.tsx` / `board-view.tsx` | Принять upstream-значение, умножить на 0.7 (или подобрать близкое). Главное — два места синхронны. |
-| Upstream рефакторнул разметку карточки и `line-clamp-2` мигрировал | Найти clamp заголовка (после блока `identifier`), поставить `line-clamp-3`. |
+| Upstream рефакторнул разметку карточки и `line-clamp-2` мигрировал | Найти clamp заголовка (после блока `identifier`), поставить `line-clamp-5`. |
 | Upstream добавил настраиваемую ширину колонки в view-store | Использовать новый механизм, дефолт уменьшить на 30%. |
 | Upstream поменял порядок в `STATUS_ORDER` / `ALL_STATUSES` / `BOARD_STATUSES` | Принять upstream, переставить `blocked` перед `done` во всех трёх массивах. |
 
