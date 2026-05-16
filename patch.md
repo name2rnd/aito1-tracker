@@ -575,6 +575,32 @@ Errors при чтении флага (DB hiccup, member отсутствует)
 
 ---
 
+### Патч 11 — AITO1 permission-system PreToolUse hook installation
+
+**Файлы:**
+- `server/internal/daemon/execenv/execenv.go` (Prepare + новая функция `writeAITOHookSettings`)
+- `server/internal/daemon/daemon.go` (agentEnv `CLAUDE_PROJECT_DIR`)
+- `server/pkg/agent/claude.go` (buildClaudeArgs `--setting-sources`)
+
+**Зачем:** AITO1 permission-системе нужен Claude Code PreToolUse hook, который перехватывает Bash-команды Executor'а и проверяет permission в Brain через HTTP. Hook регистрируется через project-scope settings.json в workdir, но multica daemon не создавал ни `.claude/settings.json`, ни `CLAUDE_PROJECT_DIR`, а в `-p` режиме Claude Code дефолтно игнорирует project-settings без явного `--setting-sources=project,local`. См. [plans/permission-system-design.md](https://a.yandex-team.ru/arcadia/taxi/ai/aito1/plans/permission-system-design.md) Слой 6 и [plans/permission-system-implementation.md](https://a.yandex-team.ru/arcadia/taxi/ai/aito1/plans/permission-system-implementation.md) Этап 0.
+
+**Что изменено:**
+
+1. **`execenv.go::Prepare`** после `writeContextFiles` добавлен вызов `writeAITOHookSettings(workDir, logger)` для провайдера `claude`. Функция читает `~/.aito1/hook-settings.json` (управляемый AITO1 installer'ом), создаёт `<workDir>/.claude/`, копирует туда settings.json. Если файла нет (degraded mode) — silent skip с warning.
+
+2. **`daemon.go::launchProvider`** в формирование `agentEnv` добавлен `agentEnv["CLAUDE_PROJECT_DIR"] = env.WorkDir` для provider=`claude`. Без него hook command paths с `${CLAUDE_PROJECT_DIR}/...` не резолвятся.
+
+3. **`claude.go::buildClaudeArgs`** в базовые args добавлен `--setting-sources` `project,local`. **Критично:** в `-p` (--print) режиме дефолт другой, project-settings игнорируются silent — hook не вызовется (подтверждено smoke S-0.2/S-0.3 на AIT-231 в проекте `tests`).
+
+**Тесты:** S-0.1 ... S-0.4 в [plans/permission-system-test-plan.md](https://a.yandex-team.ru/arcadia/taxi/ai/aito1/plans/permission-system-test-plan.md). Прошли 2026-05-16.
+
+**Если конфликт при merge/rebase с upstream:**
+- `execenv.go` — упоминание AITO1-patch и название функции уникальны, конфликт маловероятен. Если upstream рефакторит `Prepare` — сохранить вызов `writeAITOHookSettings` и саму функцию.
+- `daemon.go` — конфликт возможен если upstream меняет `agentEnv` structure. Сохранить `if provider == "claude" { agentEnv["CLAUDE_PROJECT_DIR"] = env.WorkDir }`.
+- `claude.go` — `--setting-sources` уникален, конфликт только если upstream сам начнёт его передавать (с другим значением — оставить наше).
+
+---
+
 ## Связанные правки **вне** этого репо (для полноты картины)
 
 Эти правки лежат в других репо/файлах, но без них наш форк работает не полностью. Они описаны отдельно — здесь только указатели:

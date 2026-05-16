@@ -431,6 +431,12 @@ func buildClaudeArgs(opts ExecOptions, logger *slog.Logger) []string {
 		"--verbose",
 		"--strict-mcp-config",
 		"--permission-mode", "acceptEdits",
+		// AITO1-patch: explicitly enable project+local settings discovery so
+		// Claude Code picks up <workdir>/.claude/settings.json containing
+		// PreToolUse hooks installed by execenv.writeAITOHookSettings. In `-p`
+		// (--print) mode, the default --setting-sources is `user` only, which
+		// silently ignores project settings — hooks won't fire without this.
+		"--setting-sources", "project,local",
 	}
 	if opts.Model != "" {
 		args = append(args, "--model", opts.Model)

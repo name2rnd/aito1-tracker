@@ -1664,6 +1664,14 @@ func (d *Daemon) runTask(ctx context.Context, task Task, provider string, slot i
 	if env.CodexHome != "" {
 		agentEnv["CODEX_HOME"] = env.CodexHome
 	}
+	// AITO1-patch: set CLAUDE_PROJECT_DIR so PreToolUse hooks installed via
+	// <workdir>/.claude/settings.json (see execenv.writeAITOHookSettings)
+	// resolve ${CLAUDE_PROJECT_DIR} placeholders correctly. Required by
+	// Claude Code hook contract — without it hook command paths starting
+	// with ${CLAUDE_PROJECT_DIR}/... don't expand.
+	if provider == "claude" {
+		agentEnv["CLAUDE_PROJECT_DIR"] = env.WorkDir
+	}
 	// Inject user-configured custom environment variables (e.g. ANTHROPIC_API_KEY,
 	// ANTHROPIC_BASE_URL for router/proxy mode, or CLAUDE_CODE_USE_BEDROCK for
 	// Bedrock). These are set per-agent via the agent settings UI.

@@ -139,6 +139,17 @@ func Prepare(params PrepareParams, logger *slog.Logger) (*Environment, error) {
 		return nil, fmt.Errorf("execenv: write context files: %w", err)
 	}
 
+	// AITO1-patch: copy hook-settings.json (PreToolUse permission gate) into
+	// per-task workdir so Claude Code picks it up automatically via project-scope
+	// settings discovery. Source: ~/.aito1/hook-settings.json (managed by
+	// installer / permission-system rollout). Failure is non-fatal — agents
+	// still run, but without permission enforcement (degraded mode).
+	if params.Provider == "claude" {
+		if err := writeAITOHookSettings(workDir, logger); err != nil {
+			logger.Warn("execenv: aito1 hook settings", "err", err)
+		}
+	}
+
 	// For Codex, set up a per-task CODEX_HOME seeded from ~/.codex/ with skills.
 	if params.Provider == "codex" {
 		codexHome := filepath.Join(envRoot, "codex-home")
@@ -268,5 +279,36 @@ func (env *Environment) Cleanup(removeAll bool) error {
 		env.logger.Warn("execenv: cleanup workdir failed", "error", err)
 		return err
 	}
+	return nil
+}
+
+// writeAITOHookSettings copies the AITO1 permission-system hook settings
+// from ~/.aito1/hook-settings.json into <workDir>/.claude/settings.json so
+// Claude Code's project-scope discovery picks it up. The hook handles
+// PreToolUse for Bash and (later) other write tools, calling Brain's
+// /api/permission-check endpoint. See plans/permission-system-design.md.
+func writeAITOHookSettings(workDir string, logger *slog.Logger) error {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return fmt.Errorf("home dir: %w", err)
+	}
+	src := filepath.Join(home, ".aito1", "hook-settings.json")
+	data, err := os.ReadFile(src)
+	if err != nil {
+		if os.IsNotExist(err) {
+			// Not installed yet — silently skip (degraded mode).
+			return nil
+		}
+		return fmt.Errorf("read %s: %w", src, err)
+	}
+	claudeDir := filepath.Join(workDir, ".claude")
+	if err := os.MkdirAll(claudeDir, 0o755); err != nil {
+		return fmt.Errorf("mkdir %s: %w", claudeDir, err)
+	}
+	dst := filepath.Join(claudeDir, "settings.json")
+	if err := os.WriteFile(dst, data, 0o600); err != nil {
+		return fmt.Errorf("write %s: %w", dst, err)
+	}
+	logger.Info("execenv: aito1 hook settings installed", "src", src, "dst", dst)
 	return nil
 }
