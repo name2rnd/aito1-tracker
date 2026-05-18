@@ -431,12 +431,14 @@ func buildClaudeArgs(opts ExecOptions, logger *slog.Logger) []string {
 		"--verbose",
 		"--strict-mcp-config",
 		"--permission-mode", "acceptEdits",
-		// AITO1-patch: explicitly enable project+local settings discovery so
-		// Claude Code picks up <workdir>/.claude/settings.json containing
-		// PreToolUse hooks installed by execenv.writeAITOHookSettings. In `-p`
-		// (--print) mode, the default --setting-sources is `user` only, which
-		// silently ignores project settings — hooks won't fire without this.
-		"--setting-sources", "project,local",
+		// AITO1-patch: explicitly enable user+project+local settings discovery.
+		// In `-p` (--print) mode, the default --setting-sources is `user` only,
+		// which silently ignores workdir <workdir>/.claude/settings.json (hooks
+		// won't fire). Without `user`, Naturasha's global allow-list in
+		// ~/.claude/settings.json (gmail/fetch/webfetch/playwright MCP tools)
+		// gets dropped — agents end up unable to use email/web tools that the
+		// human has explicitly approved. We include all three sources.
+		"--setting-sources", "user,project,local",
 	}
 	if opts.Model != "" {
 		args = append(args, "--model", opts.Model)

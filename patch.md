@@ -571,7 +571,12 @@ Errors при чтении флага (DB hiccup, member отсутствует)
 
 **Расширение (Naталья 2026-05-12):** условие `!isOwn` тоже добавлено — на собственных member-комментах текущего пользователя бар реакций бессмыслен (лайкать свой коммент незачем), `isOwn = actor_type === "member" && actor_id === currentUserId` уже считалось ниже в том же компоненте.
 
-**Если конфликт при merge/rebase с upstream:** upstream вряд ли тронет `CommentCard`-баррендер. Если тронет — сохранить условие `!isReactionlessActor` рядом с проверкой `!isTemp`.
+**Расширение (Наталья 2026-05-16):** для AITO1 permission-system Teamlead иногда публикует **actionable** комменты (запрос разрешения на новую операцию в Сценарии C). Эти комменты несут sentinel-строку `<!-- aito1:action_required -->` в первой линии. На них реакции нужны — лайк/дизлайк управляют permission state machine (см. [docs/permission-system.md](https://a.yandex-team.ru/arcadia/taxi/ai/aito1/docs/permission-system.md)). Решение:
+- `const isAitoActionRequired = contentText.includes("<!-- aito1:action_required -->")` — детектор по sentinel'у (невидим в markdown-рендере, но виден парсеру).
+- Условие рендера ReactionBar изменено на `!isTemp && !isOwn && (!isReactionlessActor || isAitoActionRequired)` — actionable Teamlead-коммент пробивает reactionless-фильтр.
+- `hideAddButton={!isLongContent && !isAitoActionRequired}` — короткие actionable-комменты тоже показывают кнопку добавления 👍.
+
+**Если конфликт при merge/rebase с upstream:** upstream вряд ли тронет `CommentCard`-баррендер. Если тронет — сохранить условие `!isReactionlessActor || isAitoActionRequired` рядом с проверкой `!isTemp` и определение `isAitoActionRequired` через `contentText.includes`.
 
 ---
 
@@ -590,7 +595,7 @@ Errors при чтении флага (DB hiccup, member отсутствует)
 
 2. **`daemon.go::launchProvider`** в формирование `agentEnv` добавлен `agentEnv["CLAUDE_PROJECT_DIR"] = env.WorkDir` для provider=`claude`. Без него hook command paths с `${CLAUDE_PROJECT_DIR}/...` не резолвятся.
 
-3. **`claude.go::buildClaudeArgs`** в базовые args добавлен `--setting-sources` `project,local`. **Критично:** в `-p` (--print) режиме дефолт другой, project-settings игнорируются silent — hook не вызовется (подтверждено smoke S-0.2/S-0.3 на AIT-231 в проекте `tests`).
+3. **`claude.go::buildClaudeArgs`** в базовые args добавлен `--setting-sources` `user,project,local`. **Критично:** в `-p` (--print) режиме дефолт `user` only — project-settings (hooks) игнорируются silent. Изначально (16.05.2026) стоял `project,local` без `user`, но это отрезает Наташины глобальные allow из `~/.claude/settings.json` (`mcp__gmail__*`, `WebFetch`, `mcp__playwright__*` и т.п.) — агенты не могут пользоваться tool'ами, которые Human уже разрешил для интерактивного режима. 2026-05-18: добавлен `user` (без него Executor падал в `[BLOCKED]` на каждом MCP-tool, который Brain через aito1-hook уже allow'ал).
 
 **Тесты:** S-0.1 ... S-0.4 в [plans/permission-system-test-plan.md](https://a.yandex-team.ru/arcadia/taxi/ai/aito1/plans/permission-system-test-plan.md). Прошли 2026-05-16.
 
