@@ -226,6 +226,10 @@ function CommentCardImpl({
   const reactions = entry.reactions ?? [];
   const contentText = entry.content ?? "";
   const isLongContent = contentText.length > 500 || contentText.split("\n").length > 8;
+  // AITO1: actionable Teamlead comments (permission grant requests) carry a
+  // sentinel HTML-comment. Force-show reactions on them — they're short by
+  // design but require Human's 👍/👎 to drive the permission state machine.
+  const isAitoActionRequired = contentText.includes("<!-- aito1:action_required -->");
 
   const isHighlighted = highlightedCommentId === entry.id;
 
@@ -348,13 +352,13 @@ function CommentCardImpl({
                   <ReadonlyContent content={entry.content ?? ""} />
                 </div>
                 <AttachmentList attachments={entry.attachments} content={entry.content} className="mt-1.5 pl-10" />
-                {!isTemp && !isReactionlessActor && !isOwn && (
+                {!isTemp && !isOwn && (!isReactionlessActor || isAitoActionRequired) && (
                   <ReactionBar
                     reactions={reactions}
                     currentUserId={currentUserId}
                     onToggle={(emoji) => onToggleReaction(entry.id, emoji)}
                     getActorName={getActorName}
-                    hideAddButton={!isLongContent}
+                    hideAddButton={!isLongContent && !isAitoActionRequired}
                     className="mt-1.5 pl-10"
                   />
                 )}
