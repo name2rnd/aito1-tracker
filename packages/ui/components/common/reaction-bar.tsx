@@ -2,6 +2,14 @@
 
 import { Tooltip, TooltipTrigger, TooltipContent } from "@multica/ui/components/ui/tooltip";
 import { LikeButton } from "./like-button";
+import { ClassifyButtons } from "./classify-buttons";
+
+// AITO1: classify-reaction emojis are plain strings, not unicode glyphs.
+// Render them with a readable label once a choice has been made.
+const CLASSIFY_LABELS: Record<string, string> = {
+  read: "📖 Read",
+  write: "✏️ Write",
+};
 
 interface ReactionItem {
   id: string;
@@ -41,6 +49,9 @@ interface ReactionBarProps {
   getActorName: (type: string, id: string) => string;
   className?: string;
   hideAddButton?: boolean;
+  // AITO1: when true, render [📖 Read] [✏️ Write] classify-buttons instead of
+  // the like button (for comments with the aito1:classify_request sentinel).
+  classifyMode?: boolean;
 }
 
 function ReactionBar({
@@ -50,9 +61,13 @@ function ReactionBar({
   getActorName,
   className,
   hideAddButton,
+  classifyMode,
 }: ReactionBarProps) {
   const grouped = groupReactions(reactions, currentUserId);
   const userAlreadyLiked = grouped.some((g) => g.emoji === "👍" && g.reacted);
+  const alreadyClassified = grouped.some(
+    (g) => (g.emoji === "read" || g.emoji === "write") && g.reacted,
+  );
 
   return (
     <div className={`flex flex-wrap items-center gap-1.5 ${className ?? ""}`}>
@@ -69,7 +84,7 @@ function ReactionBar({
                     : "border-brand/10 bg-brand/4 text-muted-foreground"
                 }`}
               >
-                <span>{g.emoji}</span>
+                <span>{CLASSIFY_LABELS[g.emoji] ?? g.emoji}</span>
                 <span>{g.count}</span>
               </button>
             }
@@ -79,7 +94,9 @@ function ReactionBar({
           </TooltipContent>
         </Tooltip>
       ))}
-      {!hideAddButton && !userAlreadyLiked && <LikeButton onToggle={onToggle} />}
+      {classifyMode
+        ? !alreadyClassified && <ClassifyButtons onToggle={onToggle} />
+        : !hideAddButton && !userAlreadyLiked && <LikeButton onToggle={onToggle} />}
     </div>
   );
 }

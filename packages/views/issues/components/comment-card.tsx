@@ -230,6 +230,9 @@ function CommentCardImpl({
   // sentinel HTML-comment. Force-show reactions on them — they're short by
   // design but require Human's 👍/👎 to drive the permission state machine.
   const isAitoActionRequired = contentText.includes("<!-- aito1:action_required -->");
+  // AITO1: unknown command → render [📖 Read] [✏️ Write] classify-buttons
+  // instead of the like button. Both sentinels are present on these comments.
+  const isAitoClassifyRequest = contentText.includes("<!-- aito1:classify_request -->");
 
   const isHighlighted = highlightedCommentId === entry.id;
 
@@ -359,6 +362,7 @@ function CommentCardImpl({
                     onToggle={(emoji) => onToggleReaction(entry.id, emoji)}
                     getActorName={getActorName}
                     hideAddButton={!isLongContent && !isAitoActionRequired}
+                    classifyMode={isAitoClassifyRequest}
                     className="mt-1.5 pl-10"
                   />
                 )}

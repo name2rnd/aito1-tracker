@@ -606,6 +606,34 @@ Errors при чтении флага (DB hiccup, member отсутствует)
 
 ---
 
+### Патч 12 — Classify-кнопки [📖 Read] [✏️ Write] для unknown-команд
+
+**Файлы:**
+- `packages/ui/components/common/classify-buttons.tsx` *(новый)*
+- `packages/ui/components/common/reaction-bar.tsx` (проп `classifyMode` + `CLASSIFY_LABELS`)
+- `packages/views/issues/components/comment-card.tsx` (детектор `isAitoClassifyRequest` + проброс `classifyMode`)
+
+**Зачем:** когда Executor зовёт команду, которой нет в `aito1_command_catalog`, Brain постит grant_request и Human должен её классифицировать (read / write). Раньше это делалось текстовым комментом ровно из одного слова `read`/`write`/`destructive` — Human не знал формат, естественный ответ «это read» парсер не ловил, задача застревала (реальный кейс 2026-05-19: «tracker-cli search - это read» → 5 слов → не распознано → Planner перезапускался в цикле). Заменяем текстовый канал на две явные кнопки.
+
+**Что изменено:**
+
+1. **`classify-buttons.tsx`** — новый компонент `<ClassifyButtons onToggle>`. Подпись «Что делает эта команда?» + две кнопки `[📖 Read]` (read) / `[✏️ Write]` (write). `onClick` шлёт `onToggle("read")` / `onToggle("write")` — это reaction.emoji как **plain-строка** (`comment_reaction.emoji` без charset-constraint, BE валидирует только непустоту). Эмодзи живут **внутри** лейбла кнопки, не как unicode-реакция (R/W glyph'ы из emoji-каталога серые/нечитаемы на macOS).
+
+2. **`reaction-bar.tsx`** — проп `classifyMode?: boolean`. Когда `true` → вместо `<LikeButton>` рендерится `<ClassifyButtons>` (если ещё не классифицировано — `alreadyClassified = grouped.some(g => (g.emoji==="read"||g.emoji==="write") && g.reacted)`). `CLASSIFY_LABELS` маппит сохранённые реакции `read`→`📖 Read` / `write`→`✏️ Write` в читаемый chip.
+
+3. **`comment-card.tsx`** — `isAitoClassifyRequest = contentText.includes("<!-- aito1:classify_request -->")`, проброшен как `classifyMode={isAitoClassifyRequest}` в `<ReactionBar>`. Этот sentinel Brain ставит ТОЛЬКО для unknown-команд (известные-но-без-permission остаются на like-only 👍).
+
+**Контракт с Brain:** клик → `comment_reaction:added` с emoji `read`/`write` → `_on_reaction_added` → `_maybe_classify_from_reaction` (см. `brain/listener/state_machine.py`): upsert в `aito1_command_catalog`, для write дополнительно append action + reassign Executor + rerun. Текстовый парсер (`_parse_kind_word`) удалён.
+
+**Тесты:** `tests/functional/test_state_machine_classify_reaction.py` (4 теста: read / write / no-sentinel noop / foreign-comment noop). Frontend typecheck — `pnpm --filter @multica/{ui,views} typecheck && pnpm --filter web typecheck` зелёные. Build+deploy 2026-05-20.
+
+**Если конфликт при merge/rebase с upstream:**
+- `reaction-bar.tsx` — upstream вряд ли тронет AITO1-проп `classifyMode`; если рефакторит `ReactionBar` props — перенести `classifyMode` + тернарник `classifyMode ? ClassifyButtons : LikeButton`.
+- `comment-card.tsx` — сохранить `isAitoClassifyRequest` рядом с `isAitoActionRequired` и проброс `classifyMode`.
+- `classify-buttons.tsx` — новый файл, конфликта быть не может; восстановить если потерян.
+
+---
+
 ## Связанные правки **вне** этого репо (для полноты картины)
 
 Эти правки лежат в других репо/файлах, но без них наш форк работает не полностью. Они описаны отдельно — здесь только указатели:
