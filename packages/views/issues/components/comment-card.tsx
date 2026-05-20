@@ -233,6 +233,11 @@ function CommentCardImpl({
   // AITO1: unknown command → render [📖 Read] [✏️ Write] classify-buttons
   // instead of the like button. Both sentinels are present on these comments.
   const isAitoClassifyRequest = contentText.includes("<!-- aito1:classify_request -->");
+  // AITO1: Executor's [BLOCKED] comment must NOT carry a like — a 👍 on it
+  // would (when a prior [EXECUTOR REPORT] exists) wrongly trigger Reflector.
+  // Resolve a block via the grant_request card (permission) or a text comment
+  // (availability), never by liking the block itself.
+  const isAitoBlocked = /^\s*(?:<!--[^>]*-->\s*)*\[(?:PLAN\s+)?BLOCKED/im.test(contentText);
 
   const isHighlighted = highlightedCommentId === entry.id;
 
@@ -355,7 +360,7 @@ function CommentCardImpl({
                   <ReadonlyContent content={entry.content ?? ""} />
                 </div>
                 <AttachmentList attachments={entry.attachments} content={entry.content} className="mt-1.5 pl-10" />
-                {!isTemp && !isOwn && (!isReactionlessActor || isAitoActionRequired) && (
+                {!isTemp && !isOwn && !isAitoBlocked && (!isReactionlessActor || isAitoActionRequired) && (
                   <ReactionBar
                     reactions={reactions}
                     currentUserId={currentUserId}

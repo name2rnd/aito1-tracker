@@ -657,6 +657,22 @@ Errors при чтении флага (DB hiccup, member отсутствует)
 
 ---
 
+### Патч 14 — нет reaction-bar на Executor `[BLOCKED]` комментах
+
+**Файл:** `packages/views/issues/components/comment-card.tsx`
+
+**Зачем:** 👍 на коммент `[BLOCKED]` от Executor попадал бы в reaction-branch 2 Brain'а (👍 на Executor-коммент → Reflector) и при наличии прошлого `[EXECUTOR REPORT]` в задаче **ошибочно запускал Reflector** — как будто работа одобрена, хотя задача заблокирована. Вместо усложнения Brain-логики просто убираем лайк на блок-комментах: разблокировка идёт через grant_request-карточку (permission) или текстовый коммент (availability), лайкать сам `[BLOCKED]` не нужно.
+
+**Что изменено:**
+- `isAitoBlocked` — детектор по маркеру в начале (с учётом возможного `<!-- aito1:hook_denied -->` sentinel перед ним): `/^\s*(?:<!--[^>]*-->\s*)*\[(?:PLAN\s+)?BLOCKED/im`.
+- Условие рендера `<ReactionBar>` дополнено `&& !isAitoBlocked`.
+
+grant_request-комменты (sentinel `aito1:action_required`, не `[BLOCKED]`) не затронуты — лайк/кнопки на них остаются.
+
+**Если конфликт при merge/rebase с upstream:** сохранить `isAitoBlocked` рядом с `isAitoActionRequired`/`isAitoClassifyRequest` и `&& !isAitoBlocked` в условии ReactionBar.
+
+---
+
 ## Связанные правки **вне** этого репо (для полноты картины)
 
 Эти правки лежат в других репо/файлах, но без них наш форк работает не полностью. Они описаны отдельно — здесь только указатели:
