@@ -271,6 +271,24 @@ func (h *Handler) CreateComment(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, resp)
 }
 
+// isBrainDispatchedConfig reports whether an agent's runtime_config carries
+// `brain_dispatched: true` — AITO1 pipeline agents (Planner/Executor/Reflector/
+// Teamlead/Auditor) whose triggering is owned entirely by Brain's state machine.
+// For them multica must NOT natively enqueue on_comment / @mention tasks, or
+// Brain's routing races with multica's. Bad/empty config → false (fail open to
+// normal behavior for non-AITO1 agents).
+func isBrainDispatchedConfig(runtimeConfig []byte) bool {
+	if len(runtimeConfig) == 0 {
+		return false
+	}
+	var cfg map[string]any
+	if err := json.Unmarshal(runtimeConfig, &cfg); err != nil {
+		return false
+	}
+	v, ok := cfg["brain_dispatched"].(bool)
+	return ok && v
+}
+
 // commentMentionsOthersButNotAssignee returns true if the comment @mentions
 // anyone but does NOT @mention the issue's assignee agent. This is used to
 // suppress the on_comment trigger when the user is directing their comment at
@@ -359,6 +377,12 @@ func (h *Handler) enqueueMentionedAgentTasks(ctx context.Context, issue db.Issue
 		// Load the agent to check visibility, archive status, and trigger config.
 		agent, err := h.Queries.GetAgent(ctx, agentUUID)
 		if err != nil || !agent.RuntimeID.Valid || agent.ArchivedAt.Valid {
+			continue
+		}
+		// AITO1: Brain is the sole dispatcher for pipeline agents — they must
+		// never be native-enqueued (on @mention or on_comment). All routing and
+		// agent handoff goes through Brain's state machine (assign + rerun).
+		if isBrainDispatchedConfig(agent.RuntimeConfig) {
 			continue
 		}
 		// Private agents can only be mentioned by the agent owner or workspace admin/owner.

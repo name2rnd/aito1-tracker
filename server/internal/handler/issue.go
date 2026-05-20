@@ -1594,6 +1594,13 @@ func (h *Handler) shouldEnqueueOnComment(ctx context.Context, issue db.Issue) bo
 	if !h.isAgentAssigneeReady(ctx, issue) {
 		return false
 	}
+	// AITO1: Brain is the sole dispatcher for pipeline agents — never native
+	// on_comment enqueue (Brain routes via assign + rerun). See comment.go
+	// isBrainDispatchedConfig + AITO1 patch 13.
+	if agent, err := h.Queries.GetAgent(ctx, issue.AssigneeID); err == nil &&
+		isBrainDispatchedConfig(agent.RuntimeConfig) {
+		return false
+	}
 	// Coalescing queue: allow enqueue when a task is running (so the agent
 	// picks up new comments on the next cycle) but skip if this agent already
 	// has a pending task (natural dedup for rapid-fire comments).

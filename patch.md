@@ -634,6 +634,29 @@ Errors при чтении флага (DB hiccup, member отсутствует)
 
 ---
 
+### Патч 13 — Brain как единственный диспетчер pipeline-агентов (off native trigger)
+
+**Файлы:**
+- `server/internal/handler/comment.go` — helper `isBrainDispatchedConfig` + skip в `enqueueMentionedAgentTasks`
+- `server/internal/handler/issue.go` — skip в `shouldEnqueueOnComment`
+
+**Зачем:** AITO1 pipeline-агенты (Planner/Executor/Reflector/Auditor) маршрутизируются ИСКЛЮЧИТЕЛЬНО Brain'ом (state machine: assign + rerun по последнему маркеру задачи). multica нативно enqueue'ит ассайнед-агента на любой member-коммент (`on_comment`) и @mentioned агентов — это гонка с Brain-роутингом: Human пишет «продолжай», multica дёргает агента, и Brain параллельно решает что делать. Итог — двойные запуски / «греется воздух» (Planner перепланирует там, где нужен был просто Executor-rerun). Делаем Brain единственным источником решений.
+
+**Что изменено:**
+- `isBrainDispatchedConfig(runtimeConfig []byte) bool` — true если `agent.runtime_config.brain_dispatched == true`. Пустой/битый config → false (не-AITO1 агенты работают как раньше).
+- `shouldEnqueueOnComment` (issue.go): после `isAgentAssigneeReady` — если assignee brain_dispatched, `return false` (нет нативного on_comment enqueue).
+- `enqueueMentionedAgentTasks` (comment.go): в цикле после загрузки agent — `if isBrainDispatchedConfig(agent.RuntimeConfig) { continue }` (нет нативного @mention enqueue).
+
+Флаг ставится инсталлятором (`install/phases/60_workspace.sh` build_agent_body → `runtime_config:{brain_dispatched:true}` на create+update) и в live БД (`UPDATE agent SET runtime_config = ... WHERE name IN (...)`).
+
+**Не-AITO1 агенты, autopilot, chat-таски** не затронуты — у них нет флага, нативный trigger работает.
+
+**Если конфликт при merge/rebase с upstream:**
+- `comment.go` — сохранить helper `isBrainDispatchedConfig` + `continue` в mention-цикле. Если upstream рефакторит enqueue — перенести проверку после загрузки agent.
+- `issue.go` — сохранить `brain_dispatched` skip в `shouldEnqueueOnComment` после ready-check.
+
+---
+
 ## Связанные правки **вне** этого репо (для полноты картины)
 
 Эти правки лежат в других репо/файлах, но без них наш форк работает не полностью. Они описаны отдельно — здесь только указатели:
