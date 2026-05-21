@@ -1877,6 +1877,13 @@ func (d *Daemon) runTask(ctx context.Context, task Task, provider string, slot i
 		if errMsg == "" {
 			errMsg = fmt.Sprintf("%s execution %s", provider, result.Status)
 		}
+		// AITO1-patch: append a compact run-shape summary. Claude Code renders
+		// transient API/connection failures (e.g. "socket connection was closed
+		// unexpectedly") as one opaque line and drops the native cause, so the
+		// only signal we still hold is the shape of the run — duration, tool
+		// count, per-model token usage. Attaching it to the comment users see
+		// turns an undiagnosable one-liner into something correlatable.
+		errMsg = appendFailureDiag(errMsg, provider, elapsed, tools, usageEntries)
 		// Forward SessionID/WorkDir on the blocked path: backends commonly
 		// emit a real session_id before failing (rate-limit, tool error,
 		// model reject, …). Without this the chat_session resume pointer
@@ -1890,6 +1897,41 @@ func (d *Daemon) runTask(ctx context.Context, task Task, provider string, slot i
 			EnvRoot:   env.RootDir,
 			Usage:     usageEntries,
 		}, nil
+	}
+}
+
+// appendFailureDiag attaches a compact, single-line run summary to a failure
+// message. Claude Code surfaces transient API/connection errors as one opaque
+// line and discards the underlying cause (undici ECONNRESET/ETIMEDOUT, HTTP
+// status), so the run shape we still hold — wall-clock duration, tool count,
+// per-model token usage — is what lets us tell a 2-minute large-context drop
+// apart from an instant connect failure. Appended to the comment users see,
+// not just the daemon log.
+func appendFailureDiag(msg, provider string, elapsed time.Duration, tools int32, usage []TaskUsageEntry) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "%s\n\n⎯ failed after %s · %d tools", msg, elapsed, tools)
+	for _, u := range usage {
+		model := u.Model
+		if model == "" {
+			model = provider
+		}
+		fmt.Fprintf(&b, " · %s in=%s out=%s cache_r=%s cache_w=%s",
+			model,
+			humanCount(u.InputTokens), humanCount(u.OutputTokens),
+			humanCount(u.CacheReadTokens), humanCount(u.CacheWriteTokens))
+	}
+	return b.String()
+}
+
+// humanCount renders a token count compactly: 1234 → "1.2k", 1_200_000 → "1.2M".
+func humanCount(n int64) string {
+	switch {
+	case n >= 1_000_000:
+		return fmt.Sprintf("%.1fM", float64(n)/1_000_000)
+	case n >= 1_000:
+		return fmt.Sprintf("%.1fk", float64(n)/1_000)
+	default:
+		return fmt.Sprintf("%d", n)
 	}
 }
 

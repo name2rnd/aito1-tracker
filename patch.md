@@ -673,6 +673,23 @@ grant_request-комменты (sentinel `aito1:action_required`, не `[BLOCKED
 
 ---
 
+### Патч 15 — диагностический суффикс на падениях агента
+
+**Файл:** `server/internal/daemon/daemon.go` (+ тест `internal/daemon/helpers_test.go`)
+
+**Зачем:** транзиентные обрывы соединения Claude Code с api.anthropic.com (undici «socket connection was closed unexpectedly») приходят одной непрозрачной строкой — нативную причину (ECONNRESET/ETIMEDOUT/HTTP-код) CLI выбрасывает. В запись о падении уходила только эта строка; контекст прогона (длительность, токены, число тулов), который у демона уже на руках, терялся. Теперь в коммент о падении дописывается компактная сводка формы прогона — чтобы отличить долгий large-context дроп от мгновенного отказа коннекта.
+
+**Что изменено:**
+- Хелпер `appendFailureDiag(msg, provider, elapsed, tools, usage)` — дописывает строку вида `⎯ failed after 2m21s · 18 tools · claude-opus-4-7 in=187.0k out=2.1k cache_r=1.2M cache_w=45.0k`.
+- Хелпер `humanCount(int64)` — компактный формат токенов (`1.2k` / `1.2M`).
+- В `runTask` ветка `default` (status=`failed` и прочие нештатные) оборачивает `errMsg` через `appendFailureDiag` перед возвратом `TaskResult`.
+
+Поведение не меняется: маркеров ([PLAN]/[BLOCKED]/…) суффикс не содержит, классификация/ретрай не трогаются (обрыв по-прежнему `agent_error`, авторетрая нет — сознательно). Только обогащение видимой записи.
+
+**Если конфликт при merge/rebase с upstream:** сохранить оба хелпера рядом с `executeAndDrain` и вызов `appendFailureDiag` в ветке `default` функции маппинга `agent.Result` → `TaskResult`.
+
+---
+
 ## Связанные правки **вне** этого репо (для полноты картины)
 
 Эти правки лежат в других репо/файлах, но без них наш форк работает не полностью. Они описаны отдельно — здесь только указатели:
