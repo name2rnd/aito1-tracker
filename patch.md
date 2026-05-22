@@ -690,6 +690,23 @@ grant_request-комменты (sentinel `aito1:action_required`, не `[BLOCKED
 
 ---
 
+### Патч 16 — лента комментов newest-first + форма ввода наверху
+
+**Файл:** `packages/views/issues/components/issue-detail.tsx`
+
+**Зачем:** в задачах AITO1 лента быстро растёт (Planner/Executor/Reflector/Teamlead пишут много). Upstream рендерит её ASC (старое сверху, форма «Leave a comment» внизу) — чтобы написать коммент или увидеть свежий ответ агента, приходилось пролистывать всю ленту вниз. Развернули фид: новое сверху, форма в начале секции Activity.
+
+**Что изменено** (только слой рендера в `IssueDetail`, хук `useIssueTimeline` не трогали — он по-прежнему отдаёт ASC):
+- `CommentInput` перенесён из низа секции вверх — сразу после заголовка Activity, до `AgentLiveCard` и ленты.
+- Группы ленты рендерятся реверснутыми: `[...timelineView.groups].reverse().map(...)`; внутри activity-групп тоже `[...group.entries].reverse()` (копия, не мутируем мемоизированный массив).
+- Контролы пагинации поменяны местами под newest-first: блок `(hasMoreNewer || !isAtLatest)` (show newer / jump to latest) теперь **над** лентой, блок `hasMoreOlder` (show older) — **под** лентой.
+
+WS-prepend новых комментов (`prependToLatestPage` при `isAtLatest`) после реверса даёт новый коммент сверху, ровно под формой — поведение консистентно. `scrollIntoView` по `comment-<id>` (inbox jump / highlight) работает независимо от порядка.
+
+**Если конфликт при merge/rebase с upstream:** сохранить (1) `CommentInput` вверху секции Activity, (2) `.reverse()` на группах и на entries внутри activity-групп, (3) перестановку двух блоков пагинации (newer наверху, older внизу).
+
+---
+
 ## Связанные правки **вне** этого репо (для полноты картины)
 
 Эти правки лежат в других репо/файлах, но без них наш форк работает не полностью. Они описаны отдельно — здесь только указатели:
