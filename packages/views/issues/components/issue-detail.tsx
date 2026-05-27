@@ -230,16 +230,25 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
   const [highlightedId, setHighlightedId] = useState<string | null>(null);
   const didHighlightRef = useRef<string | null>(null);
 
-  // Issue data from TQ — uses detail query, seeded from list cache if available.
-  // Only seed when description is present; list API omits it, and ContentEditor
-  // reads defaultValue on mount only — seeding null description shows an empty editor.
-  const { data: issue = null, isLoading: issueLoading } = useQuery({
+  // URL `id` can be UUID or identifier (e.g. AIT-42). Backend resolves both,
+  // but WS updaters keep the cache fresh under the UUID key only. So we do two
+  // queries: one keyed by the URL value (drives the initial fetch / seeded
+  // render), and a second keyed by the canonical UUID once we know it — the
+  // second subscriber is what receives live updates from `onIssueUpdated`.
+  const { data: rawIssue = null, isLoading: issueLoading } = useQuery({
     ...issueDetailOptions(wsId, id),
     initialData: () => {
-      const cached = allIssues.find((i) => i.id === id);
+      const cached = allIssues.find((i) => i.id === id || i.identifier === id);
       return cached?.description != null ? cached : undefined;
     },
   });
+  const canonicalIssueId = rawIssue?.id ?? "";
+  const { data: liveIssue = null } = useQuery({
+    ...issueDetailOptions(wsId, canonicalIssueId),
+    enabled: !!canonicalIssueId && canonicalIssueId !== id,
+    placeholderData: rawIssue ?? undefined,
+  });
+  const issue = liveIssue ?? rawIssue;
 
   // Record recent visit
   const recordVisit = useRecentIssuesStore((s) => s.recordVisit);

@@ -1,6 +1,12 @@
-import type { NextConfig } from "next";
 import { config } from "dotenv";
-import { resolve } from "path";
+import { resolve, dirname } from "path";
+import { fileURLToPath } from "url";
+
+// ESM-safe equivalent of __dirname. We use a .mjs config (instead of .ts)
+// because under our Jamf-restricted macOS install Next falls back to swc-wasm
+// for .ts configs, which emits CommonJS into a .js file that then fails to
+// load in this package's ESM scope.
+const __dirname = dirname(fileURLToPath(import.meta.url));
 
 // Load root .env so REMOTE_API_URL is available to next.config.ts
 config({ path: resolve(__dirname, "../../.env") });
@@ -22,10 +28,11 @@ const allowedDevOrigins = process.env.CORS_ALLOWED_ORIGINS
       .filter(Boolean)
   : undefined;
 
-const nextConfig: NextConfig = {
+/** @type {import('next').NextConfig} */
+const nextConfig = {
   ...(process.env.STANDALONE === "true"
     ? {
-        output: "standalone" as const,
+        output: "standalone",
         outputFileTracingRoot: resolve(__dirname, "../.."),
       }
     : {}),

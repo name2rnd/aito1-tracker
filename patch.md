@@ -63,7 +63,10 @@ grep -c "control_request" server/pkg/agent/claude.go # ожидаем ≥ 1 (cas
 grep -c "Keep stdin open" server/pkg/agent/claude.go # ожидаем 1 (наш комментарий)
 test -f packages/ui/components/common/like-button.tsx && echo ok  # патч 5
 test ! -f packages/ui/components/common/quick-emoji-picker.tsx && echo ok  # патч 5
-grep -c "outputFileTracingRoot" apps/web/next.config.ts  # патч 6, ожидаем 1
+grep -c "outputFileTracingRoot" apps/web/next.config.mjs  # патч 6, ожидаем 1
+test -f apps/web/next.config.mjs && test ! -f apps/web/next.config.ts && echo ok  # патч 18
+grep -c "issue.identifier" packages/views/issues/components/board-card.tsx  # патч 17, ожидаем 1
+grep -c "issue.identifier" packages/views/issues/components/list-row.tsx  # патч 17, ожидаем 1
 test -x scripts/aito1-deploy.sh && echo ok  # патч 6
 test ! -f packages/views/issues/components/reply-input.tsx && echo ok  # патч 7
 grep -c "isReplyToMemberThread" server/internal/handler/comment.go  # патч 7, ожидаем 0
@@ -687,6 +690,35 @@ grant_request-комменты (sentinel `aito1:action_required`, не `[BLOCKED
 Поведение не меняется: маркеров ([PLAN]/[BLOCKED]/…) суффикс не содержит, классификация/ретрай не трогаются (обрыв по-прежнему `agent_error`, авторетрая нет — сознательно). Только обогащение видимой записи.
 
 **Если конфликт при merge/rebase с upstream:** сохранить оба хелпера рядом с `executeAndDrain` и вызов `appendFailureDiag` в ветке `default` функции маппинга `agent.Result` → `TaskResult`.
+
+---
+
+### Патч 17 — карточки задач линкуются на `identifier` вместо UUID
+
+**Файлы:** `packages/views/issues/components/board-card.tsx`, `packages/views/issues/components/list-row.tsx`, `packages/views/issues/components/issue-detail.tsx`.
+
+**Зачем:** в AITO1 у задач есть человекочитаемый `identifier` вида `AIT-42`. Upstream строит ссылку на карточке через UUID (`/{ws}/issues/9dc669dd-…`), и URL получается мусорным. Бэкенд уже умеет резолвить и UUID, и identifier в `loadIssueForUser` через `resolveIssueByIdentifier` → можно безопасно передавать identifier в URL.
+
+**Что изменено:**
+- `board-card.tsx`, `list-row.tsx`: `href={p.issueDetail(issue.id)}` → `href={p.issueDetail(issue.identifier)}`.
+- `issue-detail.tsx`: подсасывание issue делается двумя `useQuery`. Первый по `id` из URL (может быть UUID или identifier) — для первичного fetch + seed из list-cache (`i.id === id || i.identifier === id`). После того как из rawIssue получен канонический UUID, второй `useQuery` подписывается на `issueDetailOptions(wsId, canonicalUuid)`. Это нужно потому что WS-updater `onIssueUpdated` пишет в кэш **только под UUID-ключом** — без второй подписки detail-карточка, открытая по identifier, не получала бы realtime-апдейты статусов/полей.
+
+**Если конфликт при merge/rebase с upstream:** сохранить (1) `issue.identifier` в `href` карточек, (2) двухуровневую загрузку issue в `IssueDetail` с подпиской на канонический UUID-ключ для WS-инвалидации, (3) seed initialData по `id` ИЛИ `identifier`.
+
+---
+
+### Патч 18 — `next.config.ts` → `next.config.mjs`
+
+**Файл:** `apps/web/next.config.mjs` (был `next.config.ts`).
+
+**Зачем:** под Jamf-policy native swc-darwin-arm64 не грузится (`library load disallowed by system policy`), Next падает на fallback в swc-wasm, который компилит TS-конфиг в `next.config.compiled.js` с CommonJS-семантикой (`exports`, `__dirname`), а `apps/web/package.json` объявляет `"type": "module"` — компилированный конфиг ломается в ESM-скоупе.
+
+**Что изменено:**
+- `apps/web/next.config.ts` переименован в `apps/web/next.config.mjs` — Next грузит `.mjs` напрямую, минуя SWC.
+- Убрана зависимость от TypeScript-типов (`import type { NextConfig }`, `: NextConfig`, `as const`) — заменено на JSDoc `/** @type {import('next').NextConfig} */`.
+- Внутри добавлен ESM-эквивалент `__dirname` через `fileURLToPath(import.meta.url)`.
+
+**Если конфликт при merge/rebase с upstream:** если upstream переписал `next.config.ts` — перенести правки в `.mjs` заново, оставив TS-типы только в JSDoc-комментарии. Webpack/SWC основного билда работают через wasm-fallback нормально, проблема была только в конфиге.
 
 ---
 
