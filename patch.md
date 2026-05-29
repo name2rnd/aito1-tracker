@@ -739,6 +739,20 @@ WS-prepend новых комментов (`prependToLatestPage` при `isAtLate
 
 ---
 
+### Патч 19 — Claude-каталог моделей: + Opus 4.8, дефолт = Opus 4.8
+
+**Файлы:** `server/pkg/agent/models.go` (`claudeStaticModels`), `packages/views/runtimes/utils.ts` (`MODEL_PRICING`).
+
+**Зачем:** список моделей для Claude-агентов — статический хардкод в `claudeStaticModels()` (демон отдаёт его в UI по heartbeat). Upstream-список не содержал `claude-opus-4-8` → в дропдропе настроек агента модель не выбиралась, хотя CLI её уже принимает. Заодно в таблице стоимости фронта не было тарифа 4.8.
+
+**Что изменено:**
+- `claudeStaticModels`: добавлен `{ID: "claude-opus-4-8", Label: "Claude Opus 4.8", Provider: "anthropic", Default: true}` первым элементом; `Default: true` снят с `claude-sonnet-4-6`. Single-user деплой работает на топ-модели везде (cost не ограничение) — новые Claude-агенты наследуют 4.8. Комментарий над функцией обновлён под новый дефолт.
+- `MODEL_PRICING`: добавлен `claude-opus-4-8` с тем же тарифом 5/25 (cacheRead 0.50, cacheWrite 6.25), что и 4.6/4.7.
+
+**Если конфликт при merge/rebase с upstream:** если upstream обновил `claudeStaticModels` — сохранить запись `claude-opus-4-8` и `Default: true` именно на ней (не на Sonnet); добавить тариф 4.8 в `MODEL_PRICING`, соблюдая порядок (более специфичные ключи раньше префиксов). Тест `TestStaticCatalogsHaveAtMostOneDefault` требует ровно один Default.
+
+---
+
 ## Связанные правки **вне** этого репо (для полноты картины)
 
 Эти правки лежат в других репо/файлах, но без них наш форк работает не полностью. Они описаны отдельно — здесь только указатели:

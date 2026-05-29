@@ -136,11 +136,13 @@ func cachedDiscovery(key string, fn func() ([]Model, error)) ([]Model, error) {
 
 // claudeStaticModels reflects the Claude Code CLI's accepted --model
 // values. Keep this list short and current; stale entries here
-// mislead users more than they help. Default = Sonnet because it's
-// the everyday workhorse (Opus is reserved for advisor-style flows).
+// mislead users more than they help. Default = Opus 4.8 — this single-
+// user deployment runs on the top model everywhere (cost is not a
+// constraint), so new Claude agents should inherit it too.
 func claudeStaticModels() []Model {
 	return []Model{
-		{ID: "claude-sonnet-4-6", Label: "Claude Sonnet 4.6", Provider: "anthropic", Default: true},
+		{ID: "claude-opus-4-8", Label: "Claude Opus 4.8", Provider: "anthropic", Default: true},
+		{ID: "claude-sonnet-4-6", Label: "Claude Sonnet 4.6", Provider: "anthropic"},
 		{ID: "claude-opus-4-7", Label: "Claude Opus 4.7", Provider: "anthropic"},
 		{ID: "claude-haiku-4-5-20251001", Label: "Claude Haiku 4.5", Provider: "anthropic"},
 		{ID: "claude-opus-4-6", Label: "Claude Opus 4.6", Provider: "anthropic"},
