@@ -753,6 +753,34 @@ WS-prepend новых комментов (`prependToLatestPage` при `isAtLate
 
 ---
 
+### Патч 20 — AITO1 Monitoring-секция (наблюдаемость Brain в UI)
+
+**Файлы (новые):**
+- `apps/web/app/[workspaceSlug]/(dashboard)/monitoring/page.tsx` — роут (ре-экспорт).
+- `apps/web/app/bff/monitoring/[...path]/route.ts` — **BFF-прокси** на Brain `:8082`.
+- `packages/views/monitoring/**` — view (вертикальные Tabs как в Settings): `monitoring-page.tsx`, `questions-tab.tsx`, `classes-tab.tsx`, `facts-tab.tsx`, `rules-tab.tsx`, `knowledges-tab.tsx`, `tab-chrome.tsx`. Все 5 подразделов реализованы.
+- `packages/core/monitoring/**` — data-layer (types + react-query options к BFF).
+- `packages/views/locales/{en,zh-Hans}/monitoring.json` — namespace.
+
+**Файлы (правки):**
+- `packages/views/layout/app-sidebar.tsx` — пункт `monitoring` (иконка `Activity`) в `workspaceNav` после `agents` + тип-юнионы `NavKey`/`NavLabelKey`.
+- `packages/core/paths/paths.ts` — `monitoring()`; `reserved-slugs.ts` — `"monitoring"` + `"bff"`.
+- `packages/core/paths/consistency.test.ts`, `packages/views/editor/utils/link-handler.ts` — `monitoring` в списках workspace-route-сегментов (иначе C4-тест падает).
+- `packages/views/locales/{en,zh-Hans}/layout.json` — `nav.monitoring`.
+- `packages/views/locales/index.ts`, `packages/views/i18n/resources-types.ts` — регистрация namespace.
+- `packages/{core,views}/package.json` — exports `./monitoring`.
+
+**Зачем:** раздел Monitoring — окно во внутреннее состояние Brain. 5 подразделов: Questions (`aito1_fact_queries`, newest-first, разворот → факты), Classes (`aito1_task_classes`+episode_count ↓), Facts (`aito1_facts` по usage=ref+pull ↓), Rules (`aito1_rules`+класс, status→applied ↓, do/don't), Knowledges (`aito1_knowledges` created ↓, markdown-разворот). Данные принадлежат Brain (Python) → Go-сервер не трогаем: фронт ходит в same-origin BFF, тот server-side проксирует на Brain. Контракт — `aito1` репо `docs/monitoring-section.md` + `brain/api/monitoring.py`.
+
+**Почему BFF под `/bff/`, а не `/api/`:** `next.config.mjs` rewrite'ит весь `/api/:path*` на Go-бэкенд (`afterFiles`); catch-all под `/api` перехватывается им (динамические роуты после afterFiles) и до Brain не доходит. `/bff/*` не матчится ни одним rewrite. `AITO1_BRAIN_URL` (env, деф. `http://127.0.0.1:8082`); гейт по cookie `multica_logged_in`, allowlist подпутей.
+
+**Поведение таблиц:** Questions — newest-first, клик по строке разворачивает резолвнутые факты (alias+value, длинные значения wrap'аются `break-all`), строки с 0 фактов подсвечены (`bg-destructive/5` + бейдж `0`). Classes — сортировка по episode_count ↓, описание переносится. Facts — сортировка по uses (`reference_count+pull_count`) ↓, alias+value wrap, invalidated приглушены (`opacity-50`). Перенос длинного текста в таблицах требует `whitespace-normal` (primitive `TableCell` зашивает `whitespace-nowrap`) + `max-w-0` + `break-words`/`break-all`. Общее правило UI: длинный текст всегда wrap, не скролл.
+
+**Если конфликт при merge/rebase:** сохранить `/bff/*` вне `/api`-rewrite; вернуть пункт `monitoring` в workspaceNav; при коллизии слага — переименовать.
+
+
+---
+
 ## Связанные правки **вне** этого репо (для полноты картины)
 
 Эти правки лежат в других репо/файлах, но без них наш форк работает не полностью. Они описаны отдельно — здесь только указатели:

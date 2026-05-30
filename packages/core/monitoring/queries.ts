@@ -1,0 +1,79 @@
+import { queryOptions } from "@tanstack/react-query";
+import type {
+  FactQueriesResponse,
+  FactsResponse,
+  KnowledgesResponse,
+  RulesResponse,
+  TaskClassesResponse,
+} from "./types";
+
+// Monitoring data comes from Brain (it owns the aito1_* tables), reached
+// through a same-origin Next.js BFF proxy — NOT the Go ApiClient. The BFF
+// gates on the multica session cookie and forwards to Brain server-side, so
+// these are plain relative fetches.
+//
+// Base is /bff/ — NOT /api/ — because next.config rewrites all of /api/* to
+// the Go backend, which would never reach our route handler.
+const BFF_BASE = "/bff/monitoring";
+
+async function getJson<T>(path: string): Promise<T> {
+  const res = await fetch(`${BFF_BASE}${path}`, {
+    headers: { accept: "application/json" },
+    credentials: "same-origin",
+  });
+  if (!res.ok) {
+    throw new Error(`monitoring ${path} → ${res.status}`);
+  }
+  return res.json() as Promise<T>;
+}
+
+export const monitoringKeys = {
+  all: ["monitoring"] as const,
+  factQueries: (limit: number) =>
+    ["monitoring", "fact-queries", limit] as const,
+  classes: (limit: number) => ["monitoring", "classes", limit] as const,
+  facts: (limit: number) => ["monitoring", "facts", limit] as const,
+  rules: (limit: number) => ["monitoring", "rules", limit] as const,
+  knowledges: (limit: number) => ["monitoring", "knowledges", limit] as const,
+};
+
+export function factQueriesOptions(limit = 100) {
+  return queryOptions({
+    queryKey: monitoringKeys.factQueries(limit),
+    queryFn: () =>
+      getJson<FactQueriesResponse>(`/fact-queries?limit=${limit}`),
+    staleTime: 30_000,
+  });
+}
+
+export function classesOptions(limit = 200) {
+  return queryOptions({
+    queryKey: monitoringKeys.classes(limit),
+    queryFn: () => getJson<TaskClassesResponse>(`/classes?limit=${limit}`),
+    staleTime: 30_000,
+  });
+}
+
+export function factsOptions(limit = 200) {
+  return queryOptions({
+    queryKey: monitoringKeys.facts(limit),
+    queryFn: () => getJson<FactsResponse>(`/facts?limit=${limit}`),
+    staleTime: 30_000,
+  });
+}
+
+export function rulesOptions(limit = 200) {
+  return queryOptions({
+    queryKey: monitoringKeys.rules(limit),
+    queryFn: () => getJson<RulesResponse>(`/rules?limit=${limit}`),
+    staleTime: 30_000,
+  });
+}
+
+export function knowledgesOptions(limit = 200) {
+  return queryOptions({
+    queryKey: monitoringKeys.knowledges(limit),
+    queryFn: () => getJson<KnowledgesResponse>(`/knowledges?limit=${limit}`),
+    staleTime: 30_000,
+  });
+}

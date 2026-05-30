@@ -19,6 +19,7 @@ import type skills from "../locales/en/skills.json";
 import type chat from "../locales/en/chat.json";
 import type modals from "../locales/en/modals.json";
 import type runtimes from "../locales/en/runtimes.json";
+import type monitoring from "../locales/en/monitoring.json";
 import type layout from "../locales/en/layout.json";
 
 // Module augmentation enables i18next v26 selector API across the monorepo:
@@ -53,6 +54,7 @@ declare module "i18next" {
       chat: typeof chat;
       modals: typeof modals;
       runtimes: typeof runtimes;
+      monitoring: typeof monitoring;
       layout: typeof layout;
     };
     enableSelector: true;

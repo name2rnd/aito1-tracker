@@ -67,11 +67,13 @@ export const RESERVED_SLUGS = new Set([
   "projects",
   "autopilots",
   "agents",
+  "monitoring",
   "inbox",
   "my-issues",
   "runtimes",
   "skills",
   "settings",
+  "bff", // same-origin BFF proxy namespace (/bff/monitoring/*)
   "workspaces", // global `/workspaces/new` workspace creation page
   "teams",      // reserved for future team management routes
 

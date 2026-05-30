@@ -1,0 +1,79 @@
+{
+  "page": {
+    "title": "Monitoring",
+    "tagline": "What the agents learn, search, and decide."
+  },
+  "nav": {
+    "questions": "Questions",
+    "classes": "Classes",
+    "facts": "Facts",
+    "rules": "Rules",
+    "knowledges": "Knowledges"
+  },
+  "questions": {
+    "title": "Questions",
+    "subtitle": "What agents searched memory for",
+    "col_query": "Query",
+    "col_role": "Role",
+    "col_returned": "Facts",
+    "col_issue": "Issue",
+    "col_when": "When",
+    "empty": "No memory queries logged yet.",
+    "no_facts": "Returned no facts."
+  },
+  "classes": {
+    "title": "Classes",
+    "subtitle": "Every task class the system has learned",
+    "col_name": "Class",
+    "col_status": "Status",
+    "col_episodes": "Episodes",
+    "col_last": "Last run",
+    "empty": "No task classes yet."
+  },
+  "facts": {
+    "title": "Facts",
+    "subtitle": "What the system knows, ranked by usage",
+    "col_fact": "Fact",
+    "col_source": "Source",
+    "col_uses": "Uses",
+    "col_last": "Last used",
+    "uses_breakdown": "{{ref}} recall · {{pull}} pull",
+    "invalid": "invalid",
+    "empty": "No facts learned yet."
+  },
+  "rules": {
+    "title": "Rules",
+    "subtitle": "Learned do / don't, ranked by how often they fire",
+    "col_rule": "Rule",
+    "col_agent": "Agent",
+    "col_class": "Class",
+    "col_status": "Status",
+    "col_applied": "Applied",
+    "col_approved": "Approved",
+    "kind_positive": "do",
+    "kind_negative": "don't",
+    "dont_instead": "instead",
+    "no_class": "—",
+    "empty": "No rules learned yet."
+  },
+  "knowledges": {
+    "title": "Knowledges",
+    "subtitle": "Distilled digests, newest first",
+    "col_title": "Knowledge",
+    "col_sources": "Sources",
+    "col_version": "Version",
+    "col_created": "Created",
+    "revision": "rev",
+    "empty": "No knowledge documents yet."
+  },
+  "soon": {
+    "title": "Coming soon",
+    "body": "This section isn't wired up yet."
+  },
+  "state": {
+    "error_title": "Couldn't load data",
+    "error_body": "The monitoring service didn't respond.",
+    "retry": "Retry",
+    "count": "{{count}} total"
+  }
+}

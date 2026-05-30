@@ -19,6 +19,7 @@ import enSkills from "./en/skills.json";
 import enChat from "./en/chat.json";
 import enModals from "./en/modals.json";
 import enRuntimes from "./en/runtimes.json";
+import enMonitoring from "./en/monitoring.json";
 import enLayout from "./en/layout.json";
 import zhHansCommon from "./zh-Hans/common.json";
 import zhHansAuth from "./zh-Hans/auth.json";
@@ -40,6 +41,7 @@ import zhHansSkills from "./zh-Hans/skills.json";
 import zhHansChat from "./zh-Hans/chat.json";
 import zhHansModals from "./zh-Hans/modals.json";
 import zhHansRuntimes from "./zh-Hans/runtimes.json";
+import zhHansMonitoring from "./zh-Hans/monitoring.json";
 import zhHansLayout from "./zh-Hans/layout.json";
 
 // Single source of truth for the resource bundle. Both apps (web layout +
@@ -67,6 +69,7 @@ export const RESOURCES: Record<SupportedLocale, LocaleResources> = {
     chat: enChat,
     modals: enModals,
     runtimes: enRuntimes,
+    monitoring: enMonitoring,
     layout: enLayout,
   },
   "zh-Hans": {
@@ -90,6 +93,7 @@ export const RESOURCES: Record<SupportedLocale, LocaleResources> = {
     chat: zhHansChat,
     modals: zhHansModals,
     runtimes: zhHansRuntimes,
+    monitoring: zhHansMonitoring,
     layout: zhHansLayout,
   },
 };
