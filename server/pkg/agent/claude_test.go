@@ -210,6 +210,7 @@ func TestBuildClaudeArgsIncludesStrictMCPConfig(t *testing.T) {
 		"--verbose",
 		"--strict-mcp-config",
 		"--permission-mode", "acceptEdits",
+		"--setting-sources", "user,project,local",
 	}
 
 	if len(args) != len(expected) {

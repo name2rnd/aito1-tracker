@@ -161,6 +161,8 @@ grep -c "HasAgentRepliedInThread" server/pkg/db/queries/comment.sql  # патч 
 "--permission-mode", "acceptEdits",
 ```
 
+**2026-05-31:** в `expected` дописана пара `"--setting-sources", "user,project,local"` — `buildClaudeArgs` отдаёт её (см. блок про `--setting-sources` ниже), а тест отстал и падал `expected 9 args, got 11`. Список `expected` обязан совпадать с фактическим выводом `buildClaudeArgs` 1:1.
+
 ---
 
 ### Патч 4 — тест `TestClaudeExecuteSurfacesStderrWhenChildExitsEarly` (fake claude читает 1 строку)
@@ -319,9 +321,12 @@ env = append(env, "CLAUDE_CODE_FILE_READ_MAX_OUTPUT_TOKENS=40000")
 env = append(env, "CLAUDE_CODE_MAX_OUTPUT_TOKENS=64000")
 env = append(env, "MAX_MCP_OUTPUT_TOKENS=40000")
 env = append(env, "BASH_MAX_OUTPUT_LENGTH=40000")
+env = append(env, "MCP_TIMEOUT=120000")
 ```
 
 `mergeEnv → isFilteredChildEnvKey` срезает все `CLAUDE_CODE_*` из parent env'а, поэтому переменные пишутся **после** фильтра — иначе значение из родительской shell-сессии пользователя протекло бы и затёрло наш дефолт.
+
+**`MCP_TIMEOUT=120000` (добавлен 2026-05-31):** дефолтный лимит старта MCP-сервера в Claude Code — 30 с. `gmail-mcp` (`@gongrzhe/server-gmail-autoauth-mcp`) холодно стартует 20–30 с (загрузка node-модулей + OAuth token refresh), упираясь в этот потолок; когда несколько stdio-серверов (gmail/perplexity/playwright) поднимаются одновременно, конкуренция добивает gmail за 30 с. Упавший сервер Claude Code в рамках сессии **не переподнимает** → агент видит gmail-tools недоступными и уходит в `[BLOCKED]`. Диагностировано на issue `44d85146`, Executor-сессия `79936ea0`: `Connection timeout triggered after 30458ms (limit: 30000ms)`; соседние прогоны той же задачи стартовали за 1.5 с (тёплый) и 24 с (впритык). 120 с даёт медленным cold-start'ам запас. `MCP_TIMEOUT` `isFilteredChildEnvKey` не режет — место в массиве не критично.
 
 **Почему 40k, а не 100k:** Anthropic ставит дефолт 25k не от жадности — большой single-shot вывод раздувает контекст агента и ухудшает рассуждение. 40k закрывает текущие AITO1-кейсы и оставляет защиту от «всю вики в одну Read'у».
 

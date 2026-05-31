@@ -520,6 +520,16 @@ func buildEnv(extra map[string]string) []string {
 	env = append(env, "CLAUDE_CODE_MAX_OUTPUT_TOKENS=64000")
 	env = append(env, "MAX_MCP_OUTPUT_TOKENS=40000")
 	env = append(env, "BASH_MAX_OUTPUT_LENGTH=40000")
+	// AITO1-patch: raise MCP server startup timeout from the 30s default.
+	// gmail-mcp (@gongrzhe/server-gmail-autoauth-mcp) cold-starts in 20-30s
+	// (node module load + OAuth token refresh), right at the 30s ceiling — and
+	// when several stdio servers (gmail/perplexity/playwright) cold-start
+	// concurrently the contention pushes it over, so the server is dropped for
+	// the whole session (Claude Code does not retry a failed server). The agent
+	// then sees gmail tools as unavailable and goes [BLOCKED] (observed on
+	// issue 44d85146, Executor session 79936ea0: 30458ms > 30000ms limit).
+	// 120s gives slow cold-starts a safe margin.
+	env = append(env, "MCP_TIMEOUT=120000")
 	return env
 }
 
