@@ -786,6 +786,24 @@ WS-prepend новых комментов (`prependToLatestPage` при `isAtLate
 
 ---
 
+### Патч 21 — 8-й статус `waiting` (parent подзадач / ручная пауза)
+
+**Файлы (правки):**
+- `packages/core/types/issue.ts` — `IssueStatus` += `| "waiting"`.
+- `packages/core/issues/config/status.ts` — `waiting` в `STATUS_ORDER` / `ALL_STATUSES` / `BOARD_STATUSES` (после `blocked`) + `STATUS_CONFIG` (label `Waiting`, muted-стиль как `backlog`).
+- `packages/views/issues/components/status-icon.tsx` — `WaitingIcon` (кольцо + две вертикальные паузы) + запись в `STATUS_RENDERERS`.
+- `server/internal/handler/issue.go` — `statusRank`: `WHEN 'waiting' THEN 5` (done→6, cancelled→7, ELSE→8); `shouldEnqueueAgentTask`: `waiting` skip наравне с `backlog` (не enqueue'ит агента).
+- `packages/views/locales/{en,zh-Hans}/issues.json` — ключ `status.waiting` (En `Waiting` / Zh `等待中`). Обязателен: тип `$.status` выводится из локали, без ключа `next build` падает на `issue-actions-menu-items.tsx` (`$.status[s]` индексируется по `IssueStatus`).
+
+**Файлы (новые):**
+- `server/migrations/070_issue_waiting_status.{up,down}.sql` — `waiting` в CHECK `issue.status`. UP резолвит имя инлайн-констрейнта из 001 динамически (DO-блок) и пересоздаёт `issue_status_check` с `waiting`; DOWN переводит `waiting`→`backlog` и сужает обратно.
+
+**Зачем:** система подзадач (`aito1` репо `plans/subtask-system-2026-06-02.md`). `waiting` — parent, припаркованный пока бегут подзадачи (и ручная пауза). Критично: статус исключён **И из enqueue, И из окна Manager** (окно — в `prompts/manager.prompt`, вне форка) — иначе дедлок parent↔Manager. `parent_issue_id` в форке уже есть (create/update + cycle-detection + `ListChildIssues`), схему issue не трогаем.
+
+**Если конфликт при merge/rebase:** сохранить `waiting` во всех 4 местах `status.ts` (Record-тип требует записи в `STATUS_CONFIG`, иначе TS-билд падает) + `statusRank` + `shouldEnqueueAgentTask`; номер миграции сдвинуть при коллизии.
+
+---
+
 ## Связанные правки **вне** этого репо (для полноты картины)
 
 Эти правки лежат в других репо/файлах, но без них наш форк работает не полностью. Они описаны отдельно — здесь только указатели:

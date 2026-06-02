@@ -385,9 +385,10 @@ func buildSearchQuery(phrase string, terms []string, queryNum int, hasNum bool, 
 		WHEN 'todo' THEN 2
 		WHEN 'blocked' THEN 3
 		WHEN 'backlog' THEN 4
-		WHEN 'done' THEN 5
-		WHEN 'cancelled' THEN 6
-		ELSE 7
+		WHEN 'waiting' THEN 5
+		WHEN 'done' THEN 6
+		WHEN 'cancelled' THEN 7
+		ELSE 8
 	END`
 
 	// --- match_source expression ---
@@ -1575,12 +1576,14 @@ func (h *Handler) validateAssigneePair(ctx context.Context, r *http.Request, wor
 }
 
 // shouldEnqueueAgentTask returns true when an issue creation or assignment
-// should trigger the assigned agent. Backlog issues are skipped — backlog
-// acts as a parking lot where issues can be pre-assigned without immediately
-// triggering execution. Moving out of backlog is handled separately in
-// UpdateIssue.
+// should trigger the assigned agent. Backlog and waiting issues are skipped —
+// both are parking lots where issues can be (re)assigned without immediately
+// triggering execution. `waiting` parks a parent issue while its subtasks run
+// (and serves manual pause); like backlog it must NOT enqueue, or the
+// parent↔Manager deadlock returns (plans/subtask-system-2026-06-02.md). Moving
+// out of backlog/waiting is handled separately in UpdateIssue.
 func (h *Handler) shouldEnqueueAgentTask(ctx context.Context, issue db.Issue) bool {
-	if issue.Status == "backlog" {
+	if issue.Status == "backlog" || issue.Status == "waiting" {
 		return false
 	}
 	return h.isAgentAssigneeReady(ctx, issue)

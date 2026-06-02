@@ -139,6 +139,18 @@ function CancelledIcon() {
   );
 }
 
+/** Outer ring + pause bars (parent parked while subtasks run / manual pause) */
+function WaitingIcon() {
+  return (
+    <ProgressCircle progress={0}>
+      <line x1={CX - 1.3} y1={CY - 1.8} x2={CX - 1.3} y2={CY + 1.8}
+        stroke="currentColor" strokeWidth={1.3} strokeLinecap="round" />
+      <line x1={CX + 1.3} y1={CY - 1.8} x2={CX + 1.3} y2={CY + 1.8}
+        stroke="currentColor" strokeWidth={1.3} strokeLinecap="round" />
+    </ProgressCircle>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Renderer map
 // ---------------------------------------------------------------------------
@@ -151,6 +163,7 @@ const STATUS_RENDERERS: Record<IssueStatus, () => React.ReactNode> = {
   done: DoneIcon,
   blocked: BlockedIcon,
   cancelled: CancelledIcon,
+  waiting: WaitingIcon,
 };
 
 // ---------------------------------------------------------------------------

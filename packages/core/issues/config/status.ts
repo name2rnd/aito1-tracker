@@ -6,6 +6,7 @@ export const STATUS_ORDER: IssueStatus[] = [
   "in_progress",
   "in_review",
   "blocked",
+  "waiting",
   "done",
   "cancelled",
 ];
@@ -16,6 +17,7 @@ export const ALL_STATUSES: IssueStatus[] = [
   "in_progress",
   "in_review",
   "blocked",
+  "waiting",
   "done",
   "cancelled",
 ];
@@ -27,6 +29,7 @@ export const BOARD_STATUSES: IssueStatus[] = [
   "in_progress",
   "in_review",
   "blocked",
+  "waiting",
   "done",
 ];
 
@@ -47,4 +50,7 @@ export const STATUS_CONFIG: Record<
   done: { label: "Done", iconColor: "text-info", hoverBg: "hover:bg-info/10", dividerColor: "bg-info", columnBg: "bg-info/5" },
   blocked: { label: "Blocked", iconColor: "text-destructive", hoverBg: "hover:bg-destructive/10", dividerColor: "bg-destructive", columnBg: "bg-destructive/5" },
   cancelled: { label: "Cancelled", iconColor: "text-muted-foreground", hoverBg: "hover:bg-accent", dividerColor: "bg-muted-foreground/40", columnBg: "bg-muted/40" },
+  // waiting: parent parked while subtasks run, or manual pause. Muted like backlog
+  // (not active work). plans/subtask-system-2026-06-02.md.
+  waiting: { label: "Waiting", iconColor: "text-muted-foreground", hoverBg: "hover:bg-accent", dividerColor: "bg-muted-foreground/40", columnBg: "bg-muted/40" },
 };
