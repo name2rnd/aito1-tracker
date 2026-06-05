@@ -804,6 +804,20 @@ WS-prepend новых комментов (`prependToLatestPage` при `isAtLate
 
 ---
 
+### Патч 22 — wrap названия проекта в свойствах задачи + кнопка перехода в проект
+
+**Файлы (правки):**
+- `packages/views/common/prop-row.tsx` — убран `truncate` с value-`div` строки свойства. Это **корень** обрезки: `truncate` = `whitespace-nowrap` + `overflow-hidden`, он резал любой wrap внутри ЛЮБОГО свойства. Теперь длинные значения (проект, лейблы) переносятся, короткие (статус/приоритет) — без изменений.
+- `packages/views/projects/components/project-picker.tsx` — триггер: `truncate`→`break-words text-left`, убран `overflow-hidden`, `items-center`→`items-start` (иконка по верхней линии многострочного названия).
+- `packages/views/issues/components/issue-detail.tsx` — в `PropRow` проекта рядом с `ProjectPicker` добавлена кнопка-ссылка перехода в проект (`AppLink` → `paths.projectDetail(issue.project_id)`, иконка `SquareArrowOutUpRight`); видна только когда у задачи есть проект. Иконка добавлена в lucide-импорт.
+- `packages/views/issues/components/board-card.tsx` — карточка канбана переработана в 3 строки: (1) для **подзадачи** — иконка-индикатор `CornerDownRight` (↳, при `issue.parent_issue_id`) перед номером; + прогресс подзадач (`ProgressRing` + `N/M`) справа от номера; `ActorAvatar size=28` (агент, покрупнее) у правого края; (2) заголовок; (3) проект **целиком** (`break-words`, без `truncate`/`max-w`). С карточки убраны description, priority, labels, due-date; из lucide оставлен только `CornerDownRight`; неиспользуемые импорты (`CalendarDays`/`PriorityIcon`/`PriorityPicker`/`DueDatePicker`/`PRIORITY_CONFIG`/`LabelChip`) и `formatDate` вычищены.
+
+**Зачем:** в панели свойств задачи длинное название проекта обрезалось ellipsis'ом — не видно целиком, неудобно. И не было способа перейти на страницу проекта из задачи. Правка корня (`prop-row.tsx`) чинит обрезку для всех длинных свойств разом. Карточка канбана по просьбе Наташи упрощена до «номер+агент / текст / проект целиком».
+
+**Если конфликт при merge/rebase:** ключевое — снять `truncate` с value-`div` в `prop-row.tsx`; picker-wrap и кнопка перехода — поверх. Кнопка опирается на существующий `paths.projectDetail`.
+
+---
+
 ## Связанные правки **вне** этого репо (для полноты картины)
 
 Эти правки лежат в других репо/файлах, но без них наш форк работает не полностью. Они описаны отдельно — здесь только указатели:

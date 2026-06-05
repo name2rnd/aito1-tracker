@@ -34,15 +34,15 @@ export function ProjectPicker({
   return (
     <DropdownMenu>
       <DropdownMenuTrigger
-        className={triggerRender ? undefined : "flex items-center gap-1.5 cursor-pointer rounded px-1 -mx-1 hover:bg-accent/30 transition-colors overflow-hidden"}
+        className={triggerRender ? undefined : "flex items-start gap-1.5 cursor-pointer rounded px-1 -mx-1 hover:bg-accent/30 transition-colors"}
         render={triggerRender}
       >
         {current ? (
-          <ProjectIcon project={current} size="sm" />
+          <ProjectIcon project={current} size="sm" className="mt-0.5 shrink-0" />
         ) : (
-          <FolderKanban className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+          <FolderKanban className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
         )}
-        <span className="truncate">{current ? current.title : t(($) => $.picker.no_project)}</span>
+        <span className="break-words text-left">{current ? current.title : t(($) => $.picker.no_project)}</span>
       </DropdownMenuTrigger>
       <DropdownMenuContent align={align} className="w-52">
         {projects.map((p) => (

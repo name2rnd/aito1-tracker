@@ -16,6 +16,7 @@ import {
   Pin,
   PinOff,
   Plus,
+  SquareArrowOutUpRight,
   Users,
 } from "lucide-react";
 import { PageHeader } from "../../layout/page-header";
@@ -506,7 +507,18 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
             <DueDatePicker dueDate={issue.due_date} onUpdate={handleUpdateField} />
           </PropRow>
           <PropRow label={t(($) => $.detail.prop_project)}>
-            <ProjectPicker projectId={issue.project_id} onUpdate={handleUpdateField} />
+            <div className="flex min-w-0 flex-1 items-start gap-1">
+              <ProjectPicker projectId={issue.project_id} onUpdate={handleUpdateField} />
+              {issue.project_id && (
+                <AppLink
+                  href={paths.projectDetail(issue.project_id)}
+                  className="mt-0.5 shrink-0 text-muted-foreground transition-colors hover:text-foreground"
+                  title="Перейти в проект"
+                >
+                  <SquareArrowOutUpRight className="h-3.5 w-3.5" />
+                </AppLink>
+              )}
+            </div>
           </PropRow>
           <PropRow label={t(($) => $.detail.prop_labels)}>
             <LabelPicker issueId={issue.id} align="start" />
