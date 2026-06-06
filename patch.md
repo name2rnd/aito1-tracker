@@ -836,6 +836,31 @@ WS-prepend новых комментов (`prependToLatestPage` при `isAtLate
 
 ---
 
+### Патч 24 — новый таб Monitoring → Templates (plan-шаблоны `aito1_plan_templates`, после Rules, с удалением)
+
+- `apps/web/app/bff/monitoring/[...path]/route.ts` — `"templates"` в Set `ALLOWED` (`GET /api/monitoring/templates`) **+ новый `export async function DELETE`**: единственная mutation в monitoring-BFF, скоуп строго `templates/<id>` (path.length===2 && path[0]==="templates"), форвард `DELETE /api/monitoring/templates/<id>` к Brain, тот же cookie-gate.
+- `packages/core/monitoring/types.ts` — интерфейсы `TemplateRow` (id/class_id/class_name/content_md/status/applied_count/approved_count/source_episode_id/source_issue_id/reflection_episode_id/reflection_issue_id/created_at/last_used_at/last_confirmed_at) + `TemplatesResponse`.
+- `packages/core/monitoring/queries.ts` — `monitoringKeys.templates` + `templatesOptions(limit=200)` + **`deleteTemplate(id)`** (fetch `DELETE /bff/monitoring/templates/<id>`); импорт `TemplatesResponse`.
+- `packages/views/monitoring/components/monitoring-page.tsx` — `"templates"` в `TAB_KEYS` **после `"rules"`**, иконка `LayoutTemplate` в `TAB_ICONS`, импорт+`<TabsContent value="templates"><TemplatesTab/></TabsContent>`.
+- `packages/views/monitoring/components/templates-tab.tsx` — таб по образцу `rules-tab.tsx`+`knowledges-tab.tsx`: таблица (class_name+`Chevron` / источник `E-<src8>`+`reflected E-<refl8>` / status-badge / applied / approved+rate%) + кнопка `Trash2` (с `e.stopPropagation()`, чтобы не тоггл) → `AlertDialog` → `useMutation(deleteTemplate)` + `invalidateQueries(monitoringKeys.all)`. **Клик по строке раскрывает полный `content_md` через `<Markdown>` (common/markdown) в colSpan-строке** (expand-state `Set<id>`, как knowledges-tab).
+- `packages/views/locales/{en,zh-Hans}/monitoring.json` — ключи `nav.templates` + блок `templates.*` (title/subtitle/col_template/col_source/col_status/col_applied/col_approved/from/reflected/no_class/delete/empty + вложенный `delete_dialog.{title,description,cancel,confirm}`). Обязательны в ОБОИХ локалях — `parity.test.ts`.
+
+**Зачем:** Наташе нужно видеть, из каких эпизодов синтезирован каждый plan-шаблон (source=exemplar, reflection=эпизод создания) и сколько раз он применён (applied), плюс уметь удалить плохой шаблон. Brain-сторона — `GET/DELETE /api/monitoring/templates` (`brain/api/monitoring.py` + `monitoring_repos.list_templates`/`count_templates` + `repos.delete_template` с Qdrant-point-cleanup). Удаление безопасно: episode/class FK указывают ОТ шаблона (`ON DELETE SET NULL`), обратных ссылок нет.
+
+**Если конфликт при merge/rebase:** держать `"templates"` в allowlist + DELETE-handler в BFF + `TAB_KEYS`/`TAB_ICONS` + парность `templates.*` в обеих локалях.
+
+---
+
+### Патч 25 — возврат лейблов на карточку канбана (регрессия Патча 22)
+
+- `packages/views/issues/components/board-card.tsx` — Патч 22 при упрощении карточки вычистил лейблы вместе с description/priority/due-date. Возвращены **только лейблы** (переключатель `cardProperties.labels` остался в `view-store`, дефолт `true`, но карточка перестала его читать): обратно добавлен импорт `LabelChip` (`../../labels/label-chip`), `const labels = issue.labels ?? []`, гейт `showLabels = storeProperties.labels && labels.length > 0` и рендер «Линии 4» — `flex flex-wrap` контейнер с `LabelChip` на каждый лейбл (chip'ы переносятся, без горизонтального скролла). 3-линейная структура Патча 22 (номер+агент / текст / проект) не тронута.
+
+**Зачем:** при переработке карточки в 3 строки случайно пропал показ лейблов задачи на доске — Наташа просила вернуть. priority/description/due-date оставлены убранными (так и задумано Патчем 22), возвращены строго лейблы.
+
+**Если конфликт при merge/rebase:** держать импорт `LabelChip` + `showLabels`-гейт + рендер-блок в `board-card.tsx`.
+
+---
+
 ## Связанные правки **вне** этого репо (для полноты картины)
 
 Эти правки лежат в других репо/файлах, но без них наш форк работает не полностью. Они описаны отдельно — здесь только указатели:

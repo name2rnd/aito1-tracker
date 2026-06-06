@@ -8,6 +8,7 @@
     "classes": "任务类别",
     "facts": "事实",
     "rules": "规则",
+    "templates": "模板",
     "knowledges": "知识",
     "diary": "日记"
   },
@@ -56,6 +57,26 @@
     "dont_instead": "改为",
     "no_class": "—",
     "empty": "暂无规则。"
+  },
+  "templates": {
+    "title": "模板",
+    "subtitle": "可复用的计划骨架，活跃在前",
+    "col_template": "模板",
+    "col_source": "来自回合",
+    "col_status": "状态",
+    "col_applied": "应用",
+    "col_approved": "认可",
+    "from": "来自",
+    "reflected": "反思",
+    "no_class": "—",
+    "delete": "删除模板",
+    "empty": "暂无计划模板。",
+    "delete_dialog": {
+      "title": "删除此模板？",
+      "description": "计划骨架及其向量嵌入将被永久删除。用于构建它的回合保持不变。",
+      "cancel": "取消",
+      "confirm": "删除"
+    }
   },
   "knowledges": {
     "title": "知识",

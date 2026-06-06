@@ -6,6 +6,7 @@ import type {
   KnowledgesResponse,
   RulesResponse,
   TaskClassesResponse,
+  TemplatesResponse,
 } from "./types";
 
 // Monitoring data comes from Brain (it owns the aito1_* tables), reached
@@ -35,6 +36,7 @@ export const monitoringKeys = {
   classes: (limit: number) => ["monitoring", "classes", limit] as const,
   facts: (limit: number) => ["monitoring", "facts", limit] as const,
   rules: (limit: number) => ["monitoring", "rules", limit] as const,
+  templates: (limit: number) => ["monitoring", "templates", limit] as const,
   knowledges: (limit: number) => ["monitoring", "knowledges", limit] as const,
   diary: (limit: number) => ["monitoring", "diary", limit] as const,
 };
@@ -70,6 +72,27 @@ export function rulesOptions(limit = 200) {
     queryFn: () => getJson<RulesResponse>(`/rules?limit=${limit}`),
     staleTime: 30_000,
   });
+}
+
+export function templatesOptions(limit = 200) {
+  return queryOptions({
+    queryKey: monitoringKeys.templates(limit),
+    queryFn: () => getJson<TemplatesResponse>(`/templates?limit=${limit}`),
+    staleTime: 30_000,
+  });
+}
+
+// Human-driven delete (Monitoring → Templates). Hits the BFF DELETE route,
+// which forwards to Brain. Callers invalidate monitoringKeys.templates onSuccess.
+export async function deleteTemplate(id: string): Promise<void> {
+  const res = await fetch(`${BFF_BASE}/templates/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+    headers: { accept: "application/json" },
+    credentials: "same-origin",
+  });
+  if (!res.ok) {
+    throw new Error(`monitoring delete template → ${res.status}`);
+  }
 }
 
 export function knowledgesOptions(limit = 200) {

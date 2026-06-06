@@ -88,6 +88,33 @@ export interface RulesResponse {
   items: RuleRow[];
 }
 
+export interface TemplateRow {
+  id: string;
+  class_id: string | null;
+  class_name: string | null;
+  /** the markdown skeleton with {placeholder} slots. */
+  content_md: string;
+  status: string;
+  /** times cited in a plan. */
+  applied_count: number;
+  /** times the citing episode closed done (AITO-268). */
+  approved_count: number;
+  /** exemplar episode the skeleton was generalized from. */
+  source_episode_id: string | null;
+  source_issue_id: string | null;
+  /** episode on whose reflection the template was created. */
+  reflection_episode_id: string | null;
+  reflection_issue_id: string | null;
+  created_at: string;
+  last_used_at: string | null;
+  last_confirmed_at: string | null;
+}
+
+export interface TemplatesResponse {
+  total: number;
+  items: TemplateRow[];
+}
+
 export interface KnowledgeRow {
   id: string;
   name: string;

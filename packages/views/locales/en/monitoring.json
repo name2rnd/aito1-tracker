@@ -8,6 +8,7 @@
     "classes": "Classes",
     "facts": "Facts",
     "rules": "Rules",
+    "templates": "Templates",
     "knowledges": "Knowledges",
     "diary": "Diary"
   },
@@ -56,6 +57,26 @@
     "dont_instead": "instead",
     "no_class": "—",
     "empty": "No rules learned yet."
+  },
+  "templates": {
+    "title": "Templates",
+    "subtitle": "Reusable plan skeletons, active first",
+    "col_template": "Template",
+    "col_source": "From episodes",
+    "col_status": "Status",
+    "col_applied": "Applied",
+    "col_approved": "Approved",
+    "from": "from",
+    "reflected": "reflected",
+    "no_class": "—",
+    "delete": "Delete template",
+    "empty": "No plan templates yet.",
+    "delete_dialog": {
+      "title": "Delete this template?",
+      "description": "The plan skeleton and its embedding are removed permanently. The episodes it was built from stay intact.",
+      "cancel": "Cancel",
+      "confirm": "Delete"
+    }
   },
   "knowledges": {
     "title": "Knowledges",
