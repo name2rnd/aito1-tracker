@@ -8,7 +8,8 @@
     "classes": "Classes",
     "facts": "Facts",
     "rules": "Rules",
-    "knowledges": "Knowledges"
+    "knowledges": "Knowledges",
+    "diary": "Diary"
   },
   "questions": {
     "title": "Questions",
@@ -65,6 +66,18 @@
     "col_created": "Created",
     "revision": "rev",
     "empty": "No knowledge documents yet."
+  },
+  "diary": {
+    "title": "Diary",
+    "subtitle": "The Wanderer's free-form reflections, newest first",
+    "col_title": "Note",
+    "col_kind": "Kind",
+    "col_interestingness": "Interest",
+    "col_shared": "TG",
+    "col_created": "Created",
+    "untitled": "Untitled",
+    "shared": "Shared to Telegram",
+    "empty": "No diary entries yet."
   },
   "soon": {
     "title": "Coming soon",

@@ -8,7 +8,8 @@
     "classes": "任务类别",
     "facts": "事实",
     "rules": "规则",
-    "knowledges": "知识"
+    "knowledges": "知识",
+    "diary": "日记"
   },
   "questions": {
     "title": "查询",
@@ -65,6 +66,18 @@
     "col_created": "创建",
     "revision": "修订",
     "empty": "暂无知识文档。"
+  },
+  "diary": {
+    "title": "日记",
+    "subtitle": "漫游者的自由随想，最新在前",
+    "col_title": "笔记",
+    "col_kind": "类型",
+    "col_interestingness": "趣味",
+    "col_shared": "TG",
+    "col_created": "创建",
+    "untitled": "无标题",
+    "shared": "已分享到 Telegram",
+    "empty": "暂无日记条目。"
   },
   "soon": {
     "title": "即将推出",

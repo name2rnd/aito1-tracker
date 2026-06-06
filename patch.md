@@ -818,6 +818,24 @@ WS-prepend новых комментов (`prependToLatestPage` при `isAtLate
 
 ---
 
+### Патч 23 — новый таб Monitoring → Diary (дневник агента-странника `aito1_diary`)
+
+**Файлы (правки):**
+- `apps/web/app/bff/monitoring/[...path]/route.ts` — `"diary"` в Set `ALLOWED` (проксируется `GET /api/monitoring/diary` к Brain).
+- `packages/core/monitoring/types.ts` — интерфейсы `DiaryRow` (id/session_id/kind/title/body/threads/interestingness/shared_to_tg/created_at) + `DiaryResponse`.
+- `packages/core/monitoring/queries.ts` — `monitoringKeys.diary` + `diaryOptions(limit=200)` (fetch `/diary?limit=…`, staleTime 30s); импорт `DiaryResponse`.
+- `packages/views/monitoring/components/monitoring-page.tsx` — `"diary"` в `TAB_KEYS`, иконка `NotebookPen` в `TAB_ICONS`, импорт+`<TabsContent value="diary"><DiaryTab/></TabsContent>`.
+- `packages/views/locales/{en,zh-Hans}/monitoring.json` — ключи `nav.diary` + блок `diary.*` (title/subtitle/col_title/col_kind/col_interestingness/col_shared/col_created/untitled/shared/empty). Обязательны в ОБОИХ локалях — `parity.test.ts` требует key-parity EN⟷zh.
+
+**Файлы (новые):**
+- `packages/views/monitoring/components/diary-tab.tsx` — таб по образцу `knowledges-tab.tsx`: таблица (note/kind/interestingness 1..5 точками/shared_to_tg иконкой `Send`/created), раскрытие `body` (markdown) по клику; wrap длинного контента (`max-w-0` + `break-words`).
+
+**Зачем:** Brain отдаёт дневник медитирующего агента Wanderer (Странник), нужна страница для просмотра. Brain уже готов (endpoint + сортировка newest-first), правка только UI.
+
+**Если конфликт при merge/rebase:** держать `"diary"` в allowlist + `TAB_KEYS` + `TAB_ICONS` (Record-тип требует записи) и парность ключей `diary.*` в обеих локалях (иначе `parity.test.ts` и `next build` упадут на missing key).
+
+---
+
 ## Связанные правки **вне** этого репо (для полноты картины)
 
 Эти правки лежат в других репо/файлах, но без них наш форк работает не полностью. Они описаны отдельно — здесь только указатели:

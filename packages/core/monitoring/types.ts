@@ -105,3 +105,22 @@ export interface KnowledgesResponse {
   total: number;
   items: KnowledgeRow[];
 }
+
+export interface DiaryRow {
+  id: string;
+  session_id: string | null;
+  kind: string;
+  title: string | null;
+  /** free-form note body (markdown), revealed on click. */
+  body: string;
+  threads: unknown[];
+  /** 1..5 — how interesting the Wanderer found the moment. */
+  interestingness: number;
+  shared_to_tg: boolean;
+  created_at: string;
+}
+
+export interface DiaryResponse {
+  total: number;
+  items: DiaryRow[];
+}

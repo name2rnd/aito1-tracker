@@ -17,6 +17,7 @@ const ALLOWED = new Set([
   "facts",
   "rules",
   "knowledges",
+  "diary",
 ]);
 
 const UPSTREAM_TIMEOUT_MS = 10_000;

@@ -1,5 +1,6 @@
 import { queryOptions } from "@tanstack/react-query";
 import type {
+  DiaryResponse,
   FactQueriesResponse,
   FactsResponse,
   KnowledgesResponse,
@@ -35,6 +36,7 @@ export const monitoringKeys = {
   facts: (limit: number) => ["monitoring", "facts", limit] as const,
   rules: (limit: number) => ["monitoring", "rules", limit] as const,
   knowledges: (limit: number) => ["monitoring", "knowledges", limit] as const,
+  diary: (limit: number) => ["monitoring", "diary", limit] as const,
 };
 
 export function factQueriesOptions(limit = 100) {
@@ -74,6 +76,14 @@ export function knowledgesOptions(limit = 200) {
   return queryOptions({
     queryKey: monitoringKeys.knowledges(limit),
     queryFn: () => getJson<KnowledgesResponse>(`/knowledges?limit=${limit}`),
+    staleTime: 30_000,
+  });
+}
+
+export function diaryOptions(limit = 200) {
+  return queryOptions({
+    queryKey: monitoringKeys.diary(limit),
+    queryFn: () => getJson<DiaryResponse>(`/diary?limit=${limit}`),
     staleTime: 30_000,
   });
 }
