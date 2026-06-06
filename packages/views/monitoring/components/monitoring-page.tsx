@@ -1,7 +1,7 @@
 "use client";
 
 import React from "react";
-import { Boxes, MessageCircleQuestion, FileText, Scale, BookOpen, NotebookPen } from "lucide-react";
+import { Boxes, MessageCircleQuestion, FileText, Scale, LayoutTemplate, BookOpen, NotebookPen } from "lucide-react";
 import {
   Tabs,
   TabsContent,
@@ -14,12 +14,13 @@ import { QuestionsTab } from "./questions-tab";
 import { ClassesTab } from "./classes-tab";
 import { FactsTab } from "./facts-tab";
 import { RulesTab } from "./rules-tab";
+import { TemplatesTab } from "./templates-tab";
 import { KnowledgesTab } from "./knowledges-tab";
 import { DiaryTab } from "./diary-tab";
 
 // Sub-navigated observability section, mirroring the Settings page layout:
 // vertical tabs on the left, content on the right, active tab in `?tab=`.
-const TAB_KEYS = ["questions", "classes", "facts", "rules", "knowledges", "diary"] as const;
+const TAB_KEYS = ["questions", "classes", "facts", "rules", "templates", "knowledges", "diary"] as const;
 type TabKey = (typeof TAB_KEYS)[number];
 
 const TAB_ICONS: Record<TabKey, React.ComponentType<{ className?: string }>> = {
@@ -27,6 +28,7 @@ const TAB_ICONS: Record<TabKey, React.ComponentType<{ className?: string }>> = {
   classes: Boxes,
   facts: FileText,
   rules: Scale,
+  templates: LayoutTemplate,
   knowledges: BookOpen,
   diary: NotebookPen,
 };
@@ -90,6 +92,9 @@ export function MonitoringPage() {
           </TabsContent>
           <TabsContent value="rules">
             <RulesTab />
+          </TabsContent>
+          <TabsContent value="templates">
+            <TemplatesTab />
           </TabsContent>
           <TabsContent value="knowledges">
             <KnowledgesTab />
