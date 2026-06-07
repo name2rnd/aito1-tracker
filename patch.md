@@ -861,6 +861,22 @@ WS-prepend новых комментов (`prependToLatestPage` при `isAtLate
 
 ---
 
+### Патч 26 — opencode: восстановление финального вывода из session-store (`opencode.db`)
+
+**Файлы (правки):**
+- `server/pkg/agent/opencode.go` — `opencodeDBPath()` (путь к `opencode.db`: env `MULTICA_OPENCODE_DB` → `XDG_DATA_HOME` → `~/.local/share/opencode`), `opencodeSessionIDRe` (whitelist `^ses_[A-Za-z0-9]+$` — граница против SQL-инъекции), тип `opencodeDBRow{Text,MessageTime}`, метод `readSessionOutput(ctx, sessionID)` (через `sqlite3 -json`: SELECT assistant-`text`-частей join `message` по `role`, order by message/part time), чистая `parseOpencodeDBRows(data)` (склейка всех → `full`; части последнего сообщения по max `mt` → `final`; пустой вывод = `"",""` без ошибки). В горутине `Execute` после `cmd.Wait()`: если `status=="completed"` и есть `sessionID` — читаем store, кладём `full` в `scanResult.output`, потерянный `final` (если его нет в стриме) до-эмитим в `msgCh` как `MessageText` для таймлайна. Фолбэк: ошибка/пусто → остаётся streamed output.
+- `server/pkg/agent/opencode_test.go` — 7 тестов: `parseOpencodeDBRows` (single, финал=последнее сообщение, склейка частей одного сообщения, пустой вывод, `[]`, битый JSON) + `opencodeSessionIDRe` (валидные/инъекционные id).
+
+**Зачем:** opencode 1.16.2 `run --format json` **теряет события финального шага** (итоговый `text` + закрывающий `step_finish`) из stdout при выходе процесса — flush-on-exit гонка Bun-рантайма. Каждый не-последний шаг стримится полностью, но последний эмитит только `step_start`; одношаговый ответ доходит как один `step_start` без текста. Финальный маркер агента (`[PLAN]`/`[EXECUTOR REPORT]`), который парсит Brain, живёт ровно в этом шаге → без восстановления демон видит пустой `result.Output` и метит задачу **failed «opencode returned empty output»** (боевой Wanderer-прогон qwen: 70 tools, 8 записей в дневник — но run failed из-за пустого финала).
+
+**Почему НЕ `opencode export`:** публичный `opencode export <sid>` сразу после run спавнит свой сервер, гоняется с lingering-сервером run-процесса и отдаёт обрезанный JSON десятки секунд (settle >12с, даже retry 8×1.5с не закрыл). А **сами данные лежат в `opencode.db` мгновенно** — прямое WAL-aware чтение через `sqlite3 -json` надёжно. Минус — связанность с внутренней схемой opencode (таблицы `part`/`message`, JSON-layout); терпимо на пинованной версии + фолбэк на streamed. **Правильное решение (server-mode `opencode serve` + HTTP/SSE) — отдельный improvement-тикет** (см. `aito1` память `project-opencode-yandex-aistudio`).
+
+**Подключение Yandex AI Studio** как opencode-provider — `~/.config/opencode/opencode.json` (вне репо), ключ `YC_SPEECHKIT_API_KEY` демон получает через `~/secrets.env` (плист `multica.daemon` сорсит его перед exec). Модель агента: qwen3-235b-a22b-fp8 (instruct — надёжный OpenAI tool_calls); deepseek-v4-flash ОТВЕРГНУТ для агентов (интермиттентно льёт tool-вызовы в родном DSML-формате вместо OpenAI tool_calls → opencode не парсит → агент обрывается).
+
+**Если конфликт при merge/rebase:** если upstream починил флаш стрима (финальный `text` доходит сам) — патч можно снять; иначе сохранить `readSessionOutput`/`parseOpencodeDBRows` + вызов в `Execute` после `cmd.Wait()` + тесты. При апгрейде opencode — перепроверить схему `part`/`message` в `opencode.db`.
+
+---
+
 ## Связанные правки **вне** этого репо (для полноты картины)
 
 Эти правки лежат в других репо/файлах, но без них наш форк работает не полностью. Они описаны отдельно — здесь только указатели:
