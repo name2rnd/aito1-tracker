@@ -877,6 +877,24 @@ WS-prepend новых комментов (`prependToLatestPage` при `isAtLate
 
 ---
 
+### Патч 27 — новый таб Monitoring → Advice (рекомендации permission-гейта `GET /api/monitoring/advice`)
+
+**Файлы (правки):**
+- `packages/core/monitoring/types.ts` — добавлены интерфейсы `AdviceRow` (id, row_type `text`/`redirect`, trigger_kind, trigger_value, recommendation, status, source, shown_count, fixed_count, fix_rate `number|null`, last_shown_at, created_at) и `AdviceResponse` — зеркало `brain/api/monitoring.py`. Вставлены перед `TemplateRow`.
+- `packages/core/monitoring/queries.ts` — `monitoringKeys.advice(limit)` + `adviceOptions(limit = 200)` → `getJson<AdviceResponse>(\`/advice?limit=${limit}\`)`, staleTime 30_000. (`index.ts` ядра реэкспортит через `export *` — отдельно не правился.)
+- `packages/views/monitoring/components/advice-tab.tsx` (новый) — зеркало `rules-tab.tsx`. Колонки: **Trigger** (бейдж типа correction/redirect + `trigger_kind: trigger_value` моноширинно), **Recommendation** (текст с wrap), **Status** (StatusBadge active/tentative/archived, archived-строка `opacity-50`), **Source** (бейдж human/reflector), **Shown** (shown_count), **Fixed** (fixed_count + fix_rate как %), **Last shown** (`formatWhen(last_shown_at)`, прочерк если null). Та же chrome (`tab-chrome`), те же loading/empty/error. Серверная сортировка не трогается.
+- `packages/views/monitoring/components/monitoring-page.tsx` — `advice` добавлен в `TAB_KEYS` и `TAB_ICONS` (иконка `Lightbulb`) **после `rules`**, рендер `<AdviceTab/>` в `TabsContent value="advice"`, deep-link `?tab=advice` работает через общий механизм.
+- `packages/views/locales/{en,zh-Hans}/monitoring.json` — блок `advice.*` (title/subtitle/col_*/type_text/type_redirect/never_shown/empty) + `nav.advice`. Ключи обязательны: тип i18n выводится из `typeof en/monitoring.json`, иначе `t($ => $.advice.*)` не пройдёт typecheck.
+- `apps/web/app/bff/monitoring/[...path]/route.ts` — `"advice"` добавлен в `ALLOWED` Set (GET-прокси к Brain).
+
+**Зачем:** показать агентам, какие рекомендации формирует им permission-гейт (self-improving advice loop): `text` = выученная коррекция, `redirect` = перенаправление устаревшего executable на его contract. Brain-эндпоинт `GET /api/monitoring/advice?limit&offset` уже живой; это чисто read-only UI-зеркало, по образцу таба Rules.
+
+**Typecheck:** `pnpm turbo typecheck --filter=@multica/core --filter=@multica/views --filter=@multica/web` — зелёный (4/4, включая `@multica/ui` по зависимости).
+
+**Если конфликт при merge/rebase:** держать `"advice"` в allowlist BFF + `AdviceRow`/`AdviceResponse` + `adviceOptions`/`monitoringKeys.advice` + `advice-tab.tsx` + парность `nav.advice` и блока `advice.*` в обеих локалях + регистрацию в `TAB_KEYS`/`TAB_ICONS`/`TabsContent`.
+
+---
+
 ## Связанные правки **вне** этого репо (для полноты картины)
 
 Эти правки лежат в других репо/файлах, но без них наш форк работает не полностью. Они описаны отдельно — здесь только указатели:

@@ -88,6 +88,33 @@ export interface RulesResponse {
   items: RuleRow[];
 }
 
+export interface AdviceRow {
+  id: string;
+  /** 'text' = learned correction | 'redirect' = contract redirect. */
+  row_type: string;
+  /** 'permission_source' | 'executable'. */
+  trigger_kind: string;
+  trigger_value: string;
+  recommendation: string;
+  /** active | tentative | archived. */
+  status: string;
+  /** human | reflector. */
+  source: string;
+  /** times the advice was surfaced to an agent. */
+  shown_count: number;
+  /** times the agent then did the recommended thing. */
+  fixed_count: number;
+  /** fixed_count / shown_count. */
+  fix_rate: number | null;
+  last_shown_at: string | null;
+  created_at: string | null;
+}
+
+export interface AdviceResponse {
+  total: number;
+  items: AdviceRow[];
+}
+
 export interface TemplateRow {
   id: string;
   class_id: string | null;

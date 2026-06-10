@@ -8,6 +8,7 @@
     "classes": "任务类别",
     "facts": "事实",
     "rules": "规则",
+    "advice": "建议",
     "templates": "模板",
     "knowledges": "知识",
     "diary": "日记"
@@ -57,6 +58,21 @@
     "dont_instead": "改为",
     "no_class": "—",
     "empty": "暂无规则。"
+  },
+  "advice": {
+    "title": "建议",
+    "subtitle": "权限关卡为智能体形成的建议，活跃在前",
+    "col_trigger": "触发",
+    "col_recommendation": "建议",
+    "col_status": "状态",
+    "col_source": "来源",
+    "col_shown": "展示",
+    "col_fixed": "采纳",
+    "col_last_shown": "最近展示",
+    "type_text": "纠正",
+    "type_redirect": "重定向",
+    "never_shown": "—",
+    "empty": "暂无建议。"
   },
   "templates": {
     "title": "模板",

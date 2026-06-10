@@ -8,6 +8,7 @@
     "classes": "Classes",
     "facts": "Facts",
     "rules": "Rules",
+    "advice": "Advice",
     "templates": "Templates",
     "knowledges": "Knowledges",
     "diary": "Diary"
@@ -57,6 +58,21 @@
     "dont_instead": "instead",
     "no_class": "—",
     "empty": "No rules learned yet."
+  },
+  "advice": {
+    "title": "Advice",
+    "subtitle": "Recommendations the permission gate forms for agents, active first",
+    "col_trigger": "Trigger",
+    "col_recommendation": "Recommendation",
+    "col_status": "Status",
+    "col_source": "Source",
+    "col_shown": "Shown",
+    "col_fixed": "Fixed",
+    "col_last_shown": "Last shown",
+    "type_text": "correction",
+    "type_redirect": "redirect",
+    "never_shown": "—",
+    "empty": "No advice formed yet."
   },
   "templates": {
     "title": "Templates",
