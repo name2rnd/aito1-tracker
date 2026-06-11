@@ -1,5 +1,6 @@
 import { queryOptions } from "@tanstack/react-query";
 import type {
+  AdviceResponse,
   DiaryResponse,
   FactQueriesResponse,
   FactsResponse,
@@ -36,6 +37,7 @@ export const monitoringKeys = {
   classes: (limit: number) => ["monitoring", "classes", limit] as const,
   facts: (limit: number) => ["monitoring", "facts", limit] as const,
   rules: (limit: number) => ["monitoring", "rules", limit] as const,
+  advice: (limit: number) => ["monitoring", "advice", limit] as const,
   templates: (limit: number) => ["monitoring", "templates", limit] as const,
   knowledges: (limit: number) => ["monitoring", "knowledges", limit] as const,
   diary: (limit: number) => ["monitoring", "diary", limit] as const,
@@ -70,6 +72,14 @@ export function rulesOptions(limit = 200) {
   return queryOptions({
     queryKey: monitoringKeys.rules(limit),
     queryFn: () => getJson<RulesResponse>(`/rules?limit=${limit}`),
+    staleTime: 30_000,
+  });
+}
+
+export function adviceOptions(limit = 200) {
+  return queryOptions({
+    queryKey: monitoringKeys.advice(limit),
+    queryFn: () => getJson<AdviceResponse>(`/advice?limit=${limit}`),
     staleTime: 30_000,
   });
 }

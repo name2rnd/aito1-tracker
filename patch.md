@@ -861,6 +861,99 @@ WS-prepend новых комментов (`prependToLatestPage` при `isAtLate
 
 ---
 
+### Патч 26 — opencode: восстановление финального вывода из session-store (`opencode.db`)
+
+**Файлы (правки):**
+- `server/pkg/agent/opencode.go` — `opencodeDBPath()` (путь к `opencode.db`: env `MULTICA_OPENCODE_DB` → `XDG_DATA_HOME` → `~/.local/share/opencode`), `opencodeSessionIDRe` (whitelist `^ses_[A-Za-z0-9]+$` — граница против SQL-инъекции), тип `opencodeDBRow{Text,MessageTime}`, метод `readSessionOutput(ctx, sessionID)` (через `sqlite3 -json`: SELECT assistant-`text`-частей join `message` по `role`, order by message/part time), чистая `parseOpencodeDBRows(data)` (склейка всех → `full`; части последнего сообщения по max `mt` → `final`; пустой вывод = `"",""` без ошибки). В горутине `Execute` после `cmd.Wait()`: если `status=="completed"` и есть `sessionID` — читаем store, кладём `full` в `scanResult.output`, потерянный `final` (если его нет в стриме) до-эмитим в `msgCh` как `MessageText` для таймлайна. Фолбэк: ошибка/пусто → остаётся streamed output.
+- `server/pkg/agent/opencode_test.go` — 7 тестов: `parseOpencodeDBRows` (single, финал=последнее сообщение, склейка частей одного сообщения, пустой вывод, `[]`, битый JSON) + `opencodeSessionIDRe` (валидные/инъекционные id).
+
+**Зачем:** opencode 1.16.2 `run --format json` **теряет события финального шага** (итоговый `text` + закрывающий `step_finish`) из stdout при выходе процесса — flush-on-exit гонка Bun-рантайма. Каждый не-последний шаг стримится полностью, но последний эмитит только `step_start`; одношаговый ответ доходит как один `step_start` без текста. Финальный маркер агента (`[PLAN]`/`[EXECUTOR REPORT]`), который парсит Brain, живёт ровно в этом шаге → без восстановления демон видит пустой `result.Output` и метит задачу **failed «opencode returned empty output»** (боевой Wanderer-прогон qwen: 70 tools, 8 записей в дневник — но run failed из-за пустого финала).
+
+**Почему НЕ `opencode export`:** публичный `opencode export <sid>` сразу после run спавнит свой сервер, гоняется с lingering-сервером run-процесса и отдаёт обрезанный JSON десятки секунд (settle >12с, даже retry 8×1.5с не закрыл). А **сами данные лежат в `opencode.db` мгновенно** — прямое WAL-aware чтение через `sqlite3 -json` надёжно. Минус — связанность с внутренней схемой opencode (таблицы `part`/`message`, JSON-layout); терпимо на пинованной версии + фолбэк на streamed. **Правильное решение (server-mode `opencode serve` + HTTP/SSE) — отдельный improvement-тикет** (см. `aito1` память `project-opencode-yandex-aistudio`).
+
+**Подключение Yandex AI Studio** как opencode-provider — `~/.config/opencode/opencode.json` (вне репо), ключ `YC_SPEECHKIT_API_KEY` демон получает через `~/secrets.env` (плист `multica.daemon` сорсит его перед exec). Модель агента: qwen3-235b-a22b-fp8 (instruct — надёжный OpenAI tool_calls); deepseek-v4-flash ОТВЕРГНУТ для агентов (интермиттентно льёт tool-вызовы в родном DSML-формате вместо OpenAI tool_calls → opencode не парсит → агент обрывается).
+
+**Если конфликт при merge/rebase:** если upstream починил флаш стрима (финальный `text` доходит сам) — патч можно снять; иначе сохранить `readSessionOutput`/`parseOpencodeDBRows` + вызов в `Execute` после `cmd.Wait()` + тесты. При апгрейде opencode — перепроверить схему `part`/`message` в `opencode.db`.
+
+---
+
+### Патч 27 — новый таб Monitoring → Advice (рекомендации permission-гейта `GET /api/monitoring/advice`)
+
+**Файлы (правки):**
+- `packages/core/monitoring/types.ts` — добавлены интерфейсы `AdviceRow` (id, row_type `text`/`redirect`, trigger_kind, trigger_value, recommendation, status, source, shown_count, fixed_count, fix_rate `number|null`, last_shown_at, created_at) и `AdviceResponse` — зеркало `brain/api/monitoring.py`. Вставлены перед `TemplateRow`.
+- `packages/core/monitoring/queries.ts` — `monitoringKeys.advice(limit)` + `adviceOptions(limit = 200)` → `getJson<AdviceResponse>(\`/advice?limit=${limit}\`)`, staleTime 30_000. (`index.ts` ядра реэкспортит через `export *` — отдельно не правился.)
+- `packages/views/monitoring/components/advice-tab.tsx` (новый) — зеркало `rules-tab.tsx`. Колонки: **Trigger** (бейдж типа correction/redirect + `trigger_kind: trigger_value` моноширинно), **Recommendation** (текст с wrap), **Status** (StatusBadge active/tentative/archived, archived-строка `opacity-50`), **Source** (бейдж human/reflector), **Shown** (shown_count), **Fixed** (fixed_count + fix_rate как %), **Last shown** (`formatWhen(last_shown_at)`, прочерк если null). Та же chrome (`tab-chrome`), те же loading/empty/error. Серверная сортировка не трогается.
+- `packages/views/monitoring/components/monitoring-page.tsx` — `advice` добавлен в `TAB_KEYS` и `TAB_ICONS` (иконка `Lightbulb`) **после `rules`**, рендер `<AdviceTab/>` в `TabsContent value="advice"`, deep-link `?tab=advice` работает через общий механизм.
+- `packages/views/locales/{en,zh-Hans}/monitoring.json` — блок `advice.*` (title/subtitle/col_*/type_text/type_redirect/never_shown/empty) + `nav.advice`. Ключи обязательны: тип i18n выводится из `typeof en/monitoring.json`, иначе `t($ => $.advice.*)` не пройдёт typecheck.
+- `apps/web/app/bff/monitoring/[...path]/route.ts` — `"advice"` добавлен в `ALLOWED` Set (GET-прокси к Brain).
+
+**Зачем:** показать агентам, какие рекомендации формирует им permission-гейт (self-improving advice loop): `text` = выученная коррекция, `redirect` = перенаправление устаревшего executable на его contract. Brain-эндпоинт `GET /api/monitoring/advice?limit&offset` уже живой; это чисто read-only UI-зеркало, по образцу таба Rules.
+
+**Typecheck:** `pnpm turbo typecheck --filter=@multica/core --filter=@multica/views --filter=@multica/web` — зелёный (4/4, включая `@multica/ui` по зависимости).
+
+**Если конфликт при merge/rebase:** держать `"advice"` в allowlist BFF + `AdviceRow`/`AdviceResponse` + `adviceOptions`/`monitoringKeys.advice` + `advice-tab.tsx` + парность `nav.advice` и блока `advice.*` в обеих локалях + регистрацию в `TAB_KEYS`/`TAB_ICONS`/`TabsContent`.
+
+---
+
+### Патч 28 — cancel-on-reassign скоупится на прежнего assignee (AITO-323)
+
+**Файлы (правки):**
+- `server/internal/service/task.go` — новый `CancelTasksForIssueAgent(ctx, issueID, agentID)`: обёртка над существующим sqlc-запросом `CancelAgentTasksByIssueAndAgent` + reconcile/broadcast per-row (зеркало `CancelTasksForIssue`).
+- `server/internal/handler/issue.go` — в ОБОИХ путях смены assignee (`UpdateIssue` и `BatchUpdateIssues`) безусловный `CancelTasksForIssue` заменён на скоупленный: отменяются только task'и прежнего assignee, и только если он был агентом (`prevIssue.AssigneeType=="agent"`). Cancel по статусу `cancelled` и при delete остался безусловным (намеренно).
+- `server/internal/handler/issue_reassign_test.go` (новый) — 4 теста: reassign не трогает task третьего агента (single + batch), reassign с member-assignee ничего не отменяет, статус `cancelled` отменяет всё.
+
+**Зачем:** reassign A→C убивал running-task агента B на том же issue (@-mention, параллельная работа). Brain-костыли `_settle_then_assign`/`_finalize_to_human` защищают task ИМЕННО прежнего assignee и потому остаются — этот патч закрывает только collateral по третьим агентам.
+
+**Если конфликт при merge/rebase:** держать скоуп-ветку `prevIssue.AssigneeType.String == "agent"` в обоих сайтах + метод `CancelTasksForIssueAgent` + тесты.
+
+---
+
+### Патч 29 — heartbeat задач: FailStaleTasks судит по молчанию, не по длительности (AITO-261)
+
+**Файлы (правки):**
+- `server/pkg/db/queries/agent.sql` — новый `TouchTaskHeartbeat :exec` (guard `status IN ('dispatched','running')`); в `FailStaleTasks` running-ветка переведена на `COALESCE(last_heartbeat_at, started_at)`. После правки — `make sqlc` (генерил sqlc v1.31.1, та же версия что у репо).
+- `server/internal/handler/daemon.go` — helper `touchTaskHeartbeat` (троттлинг 30с по уже загруженной строке task, best-effort) + вызовы в `GetTaskStatus` (daemon поллит каждые 5с весь прогон — якорь живости, независимый от молчания агента) и `ReportTaskMessages`.
+- `server/cmd/server/stale_heartbeat_test.go` (новый) — 4 query-теста: свежий heartbeat при 3-часовом started_at выживает, протухший фейлится, NULL → fallback к started_at, touch не пишет в терминальные строки.
+- `server/internal/handler/daemon_heartbeat_touch_test.go` (новый) — 4 handler-теста: touch из status-poll и messages, троттлинг свежего heartbeat.
+
+**Зачем:** sweeper убивал живые долгие прогоны (порог 9000с от `started_at`; 3 жертвы за 30 дней, паузы живого агента до 22 мин — эмпирика прод-БД). Семантика порога теперь «2.5ч молчания», кап на длительность остаётся на daemon-стороне (`MULTICA_AGENT_TIMEOUT`, 2ч). Колонка `last_heartbeat_at` существует с миграции 055 — новой миграции нет.
+
+**Если конфликт при merge/rebase:** держать COALESCE в running-ветке `FailStaleTasks` + `TouchTaskHeartbeat` + оба вызова `touchTaskHeartbeat` в handler'ах.
+
+---
+
+### Патч 30 — классификатор startup-фейлов + circuit breaker на claim/cron (AITO-275)
+
+**Файлы (правки):**
+- `server/internal/daemon/startup_failure.go` (новый) — `classifyStartupFailure(errText, tools)`: guard `tools==0`, regex-маркеры с прод-данных → `failure_reason` `agent_auth` (Not logged in / Invalid API key / run /login / organization has disabled) или `api_unavailable` (API Error 5xx / 429 quota / ConnectionRefused / unable to connect / unexpected server error). Эти reasons НЕ добавлены в исключения `GetLastTaskSession` — auth-фейл не отравляет сессию, resume сохраняется.
+- `server/internal/daemon/daemon.go` — вызов классификатора в default-ветке `runTask` ДО `appendFailureDiag`, `FailureReason` уходит в `TaskResult`.
+- `server/pkg/db/queries/agent.sql` — новый `ListRecentTerminalTasksByRuntime :many` (терминальная история runtime, newest-first, LIMIT).
+- `server/internal/service/startup_breaker.go` (новый) — stateless breaker: K=3 новейших терминальных задач runtime — все failed c startup-reason и новейший < 5 мин → ворота закрыты. Состояние живёт в самой истории задач (рестарты daemon — часть каскада, in-memory нельзя). После cooldown первый claim = health-проба. Fail-open на ошибке чтения.
+- `server/internal/service/task.go` — гейт в `ClaimTaskForRuntime` (после empty-cache fast path).
+- `server/cmd/server/autopilot_scheduler.go` — skip dispatch при открытом breaker'е (с advance next_run_at — расписание не залипает).
+- `server/internal/service/task.go` (`broadcastTaskEvent`) — в payload task-событий добавлен `failure_reason` (если задан): Brain слушает `task:failed` (стрик-алерт + Reflector-retry AITO-322) и не должен делать лишний REST-запрос за классом фейла.
+- Тесты: `internal/daemon/startup_failure_test.go` (12 кейсов по реальным маркерам), `internal/service/startup_breaker_test.go` (7 кейсов verdict), `internal/handler/startup_breaker_gate_test.go` (3 интеграционных: гейт закрыт/реоткрылся после cooldown/игнорирует agent_error).
+
+**Зачем:** при протухшей auth / упавшем API каждая задача умирает за ~1с с 0 tool-calls, а autopilot-cron и рестарты daemon генерят новые прогоны часами (исторический инцидент: 4217 «task received», 400 рестартов). Queued-задачи безопасно держать в очереди (у них нет таймаута, в отличие от dispatched).
+
+**Если конфликт при merge/rebase:** держать классификатор+вызов в runTask, гейт в `ClaimTaskForRuntime`, skip в scheduler. Литералы reasons продублированы в service по той же конвенции, что исключения `GetLastTaskSession`.
+
+---
+
+### Патч 31 — `POST /rerun` принимает `{"force_fresh": false}` (resume-семантика, AITO-322)
+
+**Файлы (правки):**
+- `server/internal/handler/task_lifecycle.go` — `RerunIssue` читает опциональное JSON-body `{"force_fresh": bool}`; нет body / битое body = true (историческое поведение).
+- `server/internal/service/task.go` — `RerunIssue(..., forceFresh bool)` пробрасывает в `enqueueIssueTask` вместо хардкода `true`.
+- `server/cmd/server/rerun_session_test.go` — существующий вызов обновлён (`true`).
+- `server/internal/handler/rerun_force_fresh_test.go` (новый) — 3 теста: дефолт true, явное false → `force_fresh_session=false`, явное true.
+
+**Зачем:** Brain'у нужен способ ретраить упавшего Reflector'а с resume прежней сессии (упавшая `agent_error`-сессия резюмируема через `GetLastTaskSession`, частичная работа рефлексии не выбрасывается). До патча rerun всегда форсил fresh — кэш терялся.
+
+**Если конфликт при merge/rebase:** держать body-парсинг в handler + параметр `forceFresh` в сервисе.
+
+---
+
 ## Связанные правки **вне** этого репо (для полноты картины)
 
 Эти правки лежат в других репо/файлах, но без них наш форк работает не полностью. Они описаны отдельно — здесь только указатели:

@@ -289,15 +289,38 @@ SET status = 'failed',
 WHERE runtime_id = $1 AND status IN ('dispatched', 'running')
 RETURNING *;
 
+-- name: ListRecentTerminalTasksByRuntime :many
+-- Newest-first terminal history for a runtime, used by the startup-failure
+-- circuit breaker (AITO-275) to detect an unbroken run of
+-- agent_auth/api_unavailable failures.
+SELECT id, status, failure_reason, completed_at
+FROM agent_task_queue
+WHERE runtime_id = $1
+  AND status IN ('completed', 'failed', 'cancelled')
+  AND completed_at IS NOT NULL
+ORDER BY completed_at DESC
+LIMIT sqlc.arg('row_limit');
+
+-- name: TouchTaskHeartbeat :exec
+-- Proof-of-life touch from the daemon's regular calls (status poll, message
+-- batches). Guarded by status so a late touch never writes into a row the
+-- sweeper or a cancel already finalized.
+UPDATE agent_task_queue
+SET last_heartbeat_at = now()
+WHERE id = $1 AND status IN ('dispatched', 'running');
+
 -- name: FailStaleTasks :many
 -- Fails tasks stuck in dispatched/running beyond the given thresholds.
 -- Handles cases where the daemon is alive but the task is orphaned
 -- (e.g. agent process hung, daemon failed to report completion).
+-- Running tasks are judged by silence (last heartbeat), not total runtime:
+-- a long prompt with a live daemon must survive, a row nobody touches for
+-- the whole threshold is stale. NULL heartbeat falls back to started_at.
 UPDATE agent_task_queue
 SET status = 'failed', completed_at = now(), error = 'task timed out',
     failure_reason = 'timeout'
 WHERE (status = 'dispatched' AND dispatched_at < now() - make_interval(secs => @dispatch_timeout_secs::double precision))
-   OR (status = 'running' AND started_at < now() - make_interval(secs => @running_timeout_secs::double precision))
+   OR (status = 'running' AND COALESCE(last_heartbeat_at, started_at) < now() - make_interval(secs => @running_timeout_secs::double precision))
 RETURNING *;
 
 -- name: CancelAgentTask :one

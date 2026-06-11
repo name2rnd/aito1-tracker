@@ -713,6 +713,125 @@ func TestOpencodeProcessEventsErrorDoesNotRevertToCompleted(t *testing.T) {
 	close(ch)
 }
 
+// ── Session-store recovery tests ──
+//
+// opencode 1.16.2 `run --format json` drops the FINAL step's text from stdout on
+// process exit (flush race). The persisted session — opencode's SQLite store —
+// holds it; we read it back via `sqlite3 -json`. parseOpencodeDBRows reconstructs
+// the assistant output from those rows ([{text, mt}], ordered by message time).
+
+func TestParseOpencodeDBRowsSingleMessage(t *testing.T) {
+	t.Parallel()
+
+	// One assistant message, one text part ("72" for 8×9) — the single-step
+	// case the stream drops entirely.
+	data := []byte(`[{"text":"72","mt":1000}]`)
+
+	full, final, err := parseOpencodeDBRows(data)
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+	if full != "72" || final != "72" {
+		t.Errorf("got full=%q final=%q, want both %q", full, final, "72")
+	}
+}
+
+func TestParseOpencodeDBRowsFinalIsLastMessage(t *testing.T) {
+	t.Parallel()
+
+	// Intermediate text (older message) then the closing text (newest message).
+	// full is the whole assistant output; final is only the last message's text.
+	data := []byte(`[{"text":"начинаю\n\n","mt":1000},{"text":"готово","mt":2000}]`)
+
+	full, final, err := parseOpencodeDBRows(data)
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+	if full != "начинаю\n\nготово" {
+		t.Errorf("full: got %q, want %q", full, "начинаю\n\nготово")
+	}
+	if final != "готово" {
+		t.Errorf("final: got %q, want %q", final, "готово")
+	}
+}
+
+func TestParseOpencodeDBRowsConcatenatesPartsOfSameMessage(t *testing.T) {
+	t.Parallel()
+
+	// Two text parts within the same (last) message — both belong to final.
+	data := []byte(`[{"text":"a","mt":2000},{"text":"b","mt":2000}]`)
+
+	full, final, err := parseOpencodeDBRows(data)
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+	if full != "ab" || final != "ab" {
+		t.Errorf("got full=%q final=%q, want both %q", full, final, "ab")
+	}
+}
+
+func TestParseOpencodeDBRowsEmptyOutput(t *testing.T) {
+	t.Parallel()
+
+	// sqlite3 prints nothing when the query matches no rows — not an error, the
+	// caller falls back to streamed output.
+	for _, in := range []string{"", "   \n"} {
+		full, final, err := parseOpencodeDBRows([]byte(in))
+		if err != nil {
+			t.Fatalf("in=%q err: %v", in, err)
+		}
+		if full != "" || final != "" {
+			t.Errorf("in=%q: got full=%q final=%q, want both empty", in, full, final)
+		}
+	}
+}
+
+func TestParseOpencodeDBRowsEmptyArray(t *testing.T) {
+	t.Parallel()
+
+	full, final, err := parseOpencodeDBRows([]byte(`[]`))
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+	if full != "" || final != "" {
+		t.Errorf("got full=%q final=%q, want both empty", full, final)
+	}
+}
+
+func TestParseOpencodeDBRowsInvalidJSON(t *testing.T) {
+	t.Parallel()
+
+	if _, _, err := parseOpencodeDBRows([]byte("not json at all")); err == nil {
+		t.Error("expected error for invalid JSON, got nil")
+	}
+}
+
+func TestOpencodeSessionIDValidation(t *testing.T) {
+	t.Parallel()
+
+	// The id is interpolated into SQL, so the whitelist is a security boundary.
+	valid := []string{"ses_15ca8823affeKGj0QvaOi8k9TD", "ses_abc123", "ses_X"}
+	invalid := []string{
+		"",
+		"notses",
+		"ses_",
+		"ses_has space",
+		"ses_da-sh",
+		"ses_'; DROP TABLE part;--",
+		"ses_a' OR '1'='1",
+	}
+	for _, s := range valid {
+		if !opencodeSessionIDRe.MatchString(s) {
+			t.Errorf("expected %q to be valid", s)
+		}
+	}
+	for _, s := range invalid {
+		if opencodeSessionIDRe.MatchString(s) {
+			t.Errorf("expected %q to be rejected", s)
+		}
+	}
+}
+
 // ── Windows native-binary resolution tests ──
 
 // fakeStat returns a statFn that reports any path in `present` as existing

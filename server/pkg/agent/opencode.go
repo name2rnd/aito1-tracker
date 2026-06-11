@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
 	"time"
@@ -125,6 +126,27 @@ func (b *opencodeBackend) Execute(ctx context.Context, prompt string, opts ExecO
 		}
 
 		b.cfg.Logger.Info("opencode finished", "pid", cmd.Process.Pid, "status", scanResult.status, "duration", duration.Round(time.Millisecond).String())
+
+		// Recover the final step's output that `run --format json` drops on exit
+		// (flush race) by reading the persisted session straight from opencode's
+		// SQLite store. The stream stays the live source for tool-use and
+		// intermediate text; the store is the source of truth for the final
+		// answer the daemon parses.
+		if scanResult.status == "completed" && scanResult.sessionID != "" {
+			recCtx, recCancel := context.WithTimeout(context.Background(), 15*time.Second)
+			full, final, recErr := b.readSessionOutput(recCtx, scanResult.sessionID)
+			recCancel()
+			if recErr != nil {
+				b.cfg.Logger.Warn("opencode session read failed; using streamed output", "error", recErr, "session", scanResult.sessionID)
+			} else if full != "" {
+				if final != "" && !strings.Contains(scanResult.output, strings.TrimSpace(final)) {
+					// The final text never streamed — backfill the timeline so
+					// task_message isn't missing the agent's closing message.
+					trySend(msgCh, Message{Type: MessageText, Content: final})
+				}
+				scanResult.output = full
+			}
+		}
 
 		// Build usage map. OpenCode doesn't report model per-step, so we
 		// attribute all usage to the configured model (or "unknown").
@@ -428,4 +450,109 @@ func (e *opencodeError) Message() string {
 
 type opencodeErrData struct {
 	Message string `json:"message,omitempty"`
+}
+
+// ── Final-output recovery from the opencode session store ──
+//
+// opencode 1.16.2 `run --format json` drops the final step's text part and
+// closing step_finish from stdout on process exit (a flush-on-exit race in the
+// Bun runtime): every non-final step streams fully, but the last step emits
+// only its step_start. A single-step answer therefore reaches stdout as just a
+// step_start with no text. The agent's final marker (e.g. [PLAN] /
+// [EXECUTOR REPORT]) lives in that dropped step, so without recovery the daemon
+// sees empty output and marks the task failed.
+//
+// The persisted session is the source of truth. `opencode export <sessionID>`
+// exists for this but proved unreliable right after a run: it spins up its own
+// server that races the just-exited run's lingering server and prints truncated
+// JSON for tens of seconds. The session store itself — a SQLite DB — already
+// holds every part the instant the run exits, so we read it directly (WAL-aware,
+// via the sqlite3 CLI) instead. The trade-off is a dependency on opencode's
+// internal DB layout; if a future opencode changes it, recovery falls back to
+// the streamed output.
+
+// opencodeSessionIDRe whitelists the session-id charset so it can be safely
+// interpolated into the SQL below (opencode ids look like "ses_<base62>").
+var opencodeSessionIDRe = regexp.MustCompile(`^ses_[A-Za-z0-9]+$`)
+
+// opencodeDBPath returns the path to opencode's session SQLite store, honoring
+// MULTICA_OPENCODE_DB then XDG_DATA_HOME, defaulting to ~/.local/share/opencode.
+func opencodeDBPath() string {
+	if p := os.Getenv("MULTICA_OPENCODE_DB"); p != "" {
+		return p
+	}
+	dataHome := os.Getenv("XDG_DATA_HOME")
+	if dataHome == "" {
+		dataHome = filepath.Join(os.Getenv("HOME"), ".local", "share")
+	}
+	return filepath.Join(dataHome, "opencode", "opencode.db")
+}
+
+// opencodeDBRow is one row from the session-store query: an assistant text part
+// plus the time_created of its message (used to identify the last message).
+type opencodeDBRow struct {
+	Text        string `json:"text"`
+	MessageTime int64  `json:"mt"`
+}
+
+// readSessionOutput reads the assistant output for a finished opencode session
+// straight from the session store (via `sqlite3 -json`). It returns the same
+// (full, final) pair the stream would have, recovering the final step the stream
+// drops. The sessionID is validated against a strict charset before being
+// interpolated into the query, so it cannot inject SQL.
+func (b *opencodeBackend) readSessionOutput(ctx context.Context, sessionID string) (full, final string, err error) {
+	if !opencodeSessionIDRe.MatchString(sessionID) {
+		return "", "", fmt.Errorf("invalid opencode session id %q", sessionID)
+	}
+	query := "SELECT json_extract(p.data,'$.text') AS text, m.time_created AS mt " +
+		"FROM part p JOIN message m ON p.message_id = m.id " +
+		"WHERE p.session_id = '" + sessionID + "' " +
+		"AND json_extract(m.data,'$.role') = 'assistant' " +
+		"AND json_extract(p.data,'$.type') = 'text' " +
+		"AND json_extract(p.data,'$.text') IS NOT NULL " +
+		"ORDER BY m.time_created, p.time_created;"
+	cmd := exec.CommandContext(ctx, "sqlite3", "-json", opencodeDBPath(), query)
+	hideAgentWindow(cmd)
+	out, runErr := cmd.Output()
+	if runErr != nil {
+		return "", "", fmt.Errorf("read opencode session %s: %w", sessionID, runErr)
+	}
+	return parseOpencodeDBRows(out)
+}
+
+// parseOpencodeDBRows turns the `sqlite3 -json` result into (full, final):
+//
+//	full  — every assistant text part concatenated in store order (the complete
+//	        output, including any text that did stream through);
+//	final — the text parts of the last assistant message (max message time),
+//	        i.e. the closing message the stream tends to drop.
+//
+// Empty output (no rows — sqlite3 prints nothing) yields empty strings and no
+// error, so the caller cleanly falls back to the streamed output.
+func parseOpencodeDBRows(data []byte) (full, final string, err error) {
+	trimmed := strings.TrimSpace(string(data))
+	if trimmed == "" {
+		return "", "", nil
+	}
+	var rows []opencodeDBRow
+	if err := json.Unmarshal([]byte(trimmed), &rows); err != nil {
+		return "", "", fmt.Errorf("parse opencode db rows: %w", err)
+	}
+	if len(rows) == 0 {
+		return "", "", nil
+	}
+	var lastMT int64
+	for _, r := range rows {
+		if r.MessageTime > lastMT {
+			lastMT = r.MessageTime
+		}
+	}
+	var fullB, finalB strings.Builder
+	for _, r := range rows {
+		fullB.WriteString(r.Text)
+		if r.MessageTime == lastMT {
+			finalB.WriteString(r.Text)
+		}
+	}
+	return fullB.String(), finalB.String(), nil
 }

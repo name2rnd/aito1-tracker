@@ -94,10 +94,15 @@ func (h *Handler) PinTaskSession(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// RerunIssue manually re-enqueues the issue's current agent assignment as a
-// fresh task. Useful when an issue is stuck or the user wants to retry a
-// failed run. The new task carries the most recent session_id/work_dir so
-// the agent can resume where it left off when the backend supports it.
+// RerunIssue manually re-enqueues the issue's current agent assignment.
+// Useful when an issue is stuck or the user wants to retry a failed run.
+//
+// AITO1-patch (AITO-322): accepts an optional JSON body
+// {"force_fresh": false}. The default (no body / true) keeps the historical
+// behaviour — a fresh agent session. force_fresh=false enqueues with resume
+// semantics: the daemon's claim path serves the prior session via
+// GetLastTaskSession (failed sessions included), so Brain can retry a
+// crashed Reflector without throwing away its partial work.
 func (h *Handler) RerunIssue(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	issue, ok := h.loadIssueForUser(w, r, id)
@@ -105,7 +110,19 @@ func (h *Handler) RerunIssue(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	task, err := h.TaskService.RerunIssue(r.Context(), issue.ID, pgtype.UUID{})
+	forceFresh := true
+	if r.Body != nil {
+		var req struct {
+			ForceFresh *bool `json:"force_fresh"`
+		}
+		// An empty or malformed body keeps the default — the endpoint
+		// historically took no body at all.
+		if err := json.NewDecoder(r.Body).Decode(&req); err == nil && req.ForceFresh != nil {
+			forceFresh = *req.ForceFresh
+		}
+	}
+
+	task, err := h.TaskService.RerunIssue(r.Context(), issue.ID, pgtype.UUID{}, forceFresh)
 	if err != nil {
 		slog.Warn("issue rerun failed", "issue_id", id, "error", err)
 		writeError(w, http.StatusBadRequest, err.Error())

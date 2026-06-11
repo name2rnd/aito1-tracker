@@ -1490,9 +1490,13 @@ func (h *Handler) UpdateIssue(w http.ResponseWriter, r *http.Request) {
 		"creator_id":          uuidToString(prevIssue.CreatorID),
 	})
 
-	// Reconcile task queue when assignee changes.
+	// Reconcile task queue when assignee changes. Cancellation is scoped to
+	// the previous assignee's tasks: tasks of other agents on the same issue
+	// (@-mention, parallel work) must survive a reassign (AITO-323).
 	if assigneeChanged {
-		h.TaskService.CancelTasksForIssue(r.Context(), issue.ID)
+		if prevIssue.AssigneeType.String == "agent" && prevIssue.AssigneeID.Valid {
+			h.TaskService.CancelTasksForIssueAgent(r.Context(), issue.ID, prevIssue.AssigneeID)
+		}
 
 		if h.shouldEnqueueAgentTask(r.Context(), issue) {
 			h.TaskService.EnqueueTaskForIssue(r.Context(), issue)
@@ -1886,8 +1890,12 @@ func (h *Handler) BatchUpdateIssues(w http.ResponseWriter, r *http.Request) {
 			"priority_changed": priorityChanged,
 		})
 
+		// Same scope rule as UpdateIssue: cancel only the previous
+		// assignee's tasks on reassign (AITO-323).
 		if assigneeChanged {
-			h.TaskService.CancelTasksForIssue(r.Context(), issue.ID)
+			if prevIssue.AssigneeType.String == "agent" && prevIssue.AssigneeID.Valid {
+				h.TaskService.CancelTasksForIssueAgent(r.Context(), issue.ID, prevIssue.AssigneeID)
+			}
 			if h.shouldEnqueueAgentTask(r.Context(), issue) {
 				h.TaskService.EnqueueTaskForIssue(r.Context(), issue)
 			}

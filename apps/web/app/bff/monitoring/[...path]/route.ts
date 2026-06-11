@@ -16,6 +16,7 @@ const ALLOWED = new Set([
   "classes",
   "facts",
   "rules",
+  "advice",
   "templates",
   "knowledges",
   "diary",
