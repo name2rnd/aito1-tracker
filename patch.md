@@ -931,6 +931,7 @@ WS-prepend новых комментов (`prependToLatestPage` при `isAtLate
 - `server/internal/service/startup_breaker.go` (новый) — stateless breaker: K=3 новейших терминальных задач runtime — все failed c startup-reason и новейший < 5 мин → ворота закрыты. Состояние живёт в самой истории задач (рестарты daemon — часть каскада, in-memory нельзя). После cooldown первый claim = health-проба. Fail-open на ошибке чтения.
 - `server/internal/service/task.go` — гейт в `ClaimTaskForRuntime` (после empty-cache fast path).
 - `server/cmd/server/autopilot_scheduler.go` — skip dispatch при открытом breaker'е (с advance next_run_at — расписание не залипает).
+- `server/internal/service/task.go` (`broadcastTaskEvent`) — в payload task-событий добавлен `failure_reason` (если задан): Brain слушает `task:failed` (стрик-алерт + Reflector-retry AITO-322) и не должен делать лишний REST-запрос за классом фейла.
 - Тесты: `internal/daemon/startup_failure_test.go` (12 кейсов по реальным маркерам), `internal/service/startup_breaker_test.go` (7 кейсов verdict), `internal/handler/startup_breaker_gate_test.go` (3 интеграционных: гейт закрыт/реоткрылся после cooldown/игнорирует agent_error).
 
 **Зачем:** при протухшей auth / упавшем API каждая задача умирает за ~1с с 0 tool-calls, а autopilot-cron и рестарты daemon генерят новые прогоны часами (исторический инцидент: 4217 «task received», 400 рестартов). Queued-задачи безопасно держать в очереди (у них нет таймаута, в отличие от dispatched).

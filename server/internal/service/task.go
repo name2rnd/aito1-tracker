@@ -1330,6 +1330,11 @@ func (s *TaskService) broadcastTaskEvent(ctx context.Context, eventType string, 
 		"issue_id": util.UUIDToString(task.IssueID),
 		"status":   task.Status,
 	}
+	// AITO1-patch (AITO-275/322): Brain consumes task:failed and needs the
+	// failure class without an extra REST round-trip.
+	if task.FailureReason.Valid && task.FailureReason.String != "" {
+		payload["failure_reason"] = task.FailureReason.String
+	}
 	if task.ChatSessionID.Valid {
 		payload["chat_session_id"] = util.UUIDToString(task.ChatSessionID)
 	}
