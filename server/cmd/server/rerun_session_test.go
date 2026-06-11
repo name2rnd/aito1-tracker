@@ -148,7 +148,7 @@ func TestRerunIssueSetsForceFreshSession(t *testing.T) {
 	bus := events.New()
 	taskService := service.NewTaskService(queries, nil, hub, bus)
 
-	task, err := taskService.RerunIssue(ctx, pgtype.UUID{Bytes: parseUUIDBytes(issueID), Valid: true}, pgtype.UUID{})
+	task, err := taskService.RerunIssue(ctx, pgtype.UUID{Bytes: parseUUIDBytes(issueID), Valid: true}, pgtype.UUID{}, true)
 	if err != nil {
 		t.Fatalf("RerunIssue failed: %v", err)
 	}

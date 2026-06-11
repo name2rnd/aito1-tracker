@@ -1877,6 +1877,11 @@ func (d *Daemon) runTask(ctx context.Context, task Task, provider string, slot i
 		if errMsg == "" {
 			errMsg = fmt.Sprintf("%s execution %s", provider, result.Status)
 		}
+		// AITO1-patch (AITO-275): classify fail-before-first-tool runs
+		// (expired auth, API outage) BEFORE the diag suffix inflates the
+		// text. The reason drives the server-side claim gate so these
+		// failures stop the cascade instead of feeding it.
+		failureReason := classifyStartupFailure(result.Error, tools)
 		// AITO1-patch: append a compact run-shape summary. Claude Code renders
 		// transient API/connection failures (e.g. "socket connection was closed
 		// unexpectedly") as one opaque line and drops the native cause, so the
@@ -1890,12 +1895,13 @@ func (d *Daemon) runTask(ctx context.Context, task Task, provider string, slot i
 		// would either be left stale or overwritten with NULL on the
 		// server, causing the next chat turn to lose context.
 		return TaskResult{
-			Status:    "blocked",
-			Comment:   errMsg,
-			SessionID: result.SessionID,
-			WorkDir:   env.WorkDir,
-			EnvRoot:   env.RootDir,
-			Usage:     usageEntries,
+			Status:        "blocked",
+			Comment:       errMsg,
+			SessionID:     result.SessionID,
+			WorkDir:       env.WorkDir,
+			EnvRoot:       env.RootDir,
+			Usage:         usageEntries,
+			FailureReason: failureReason,
 		}, nil
 	}
 }

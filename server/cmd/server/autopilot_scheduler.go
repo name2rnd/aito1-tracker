@@ -92,6 +92,21 @@ func tickScheduledAutopilots(ctx context.Context, queries *db.Queries, svc *serv
 			continue
 		}
 
+		// Startup-failure circuit breaker (AITO-275): the cron has no memory
+		// of past failures, so during an auth/API outage it would burn a run
+		// every schedule fire. Skip the dispatch but still advance
+		// next_run_at — the schedule resumes naturally once the breaker
+		// closes.
+		if agent, err := queries.GetAgent(ctx, autopilot.AssigneeID); err == nil &&
+			service.StartupFailureBreakerOpen(ctx, queries, agent.RuntimeID) {
+			slog.Warn("autopilot scheduler: startup breaker open, skipping run",
+				"autopilot_id", util.UUIDToString(autopilot.ID),
+				"trigger_id", util.UUIDToString(t.ID),
+			)
+			advanceNextRun(ctx, queries, t)
+			continue
+		}
+
 		// Dispatch the autopilot run.
 		if _, err := svc.DispatchAutopilot(ctx, autopilot, t.ID, "schedule", nil); err != nil {
 			slog.Warn("autopilot scheduler: dispatch failed",

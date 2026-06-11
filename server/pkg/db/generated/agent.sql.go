@@ -873,7 +873,7 @@ UPDATE agent_task_queue
 SET status = 'failed', completed_at = now(), error = 'task timed out',
     failure_reason = 'timeout'
 WHERE (status = 'dispatched' AND dispatched_at < now() - make_interval(secs => $1::double precision))
-   OR (status = 'running' AND started_at < now() - make_interval(secs => $2::double precision))
+   OR (status = 'running' AND COALESCE(last_heartbeat_at, started_at) < now() - make_interval(secs => $2::double precision))
 RETURNING id, agent_id, issue_id, status, priority, dispatched_at, started_at, completed_at, result, error, created_at, context, runtime_id, session_id, work_dir, trigger_comment_id, chat_session_id, autopilot_run_id, attempt, max_attempts, parent_task_id, failure_reason, last_heartbeat_at, trigger_summary, force_fresh_session
 `
 
@@ -885,6 +885,9 @@ type FailStaleTasksParams struct {
 // Fails tasks stuck in dispatched/running beyond the given thresholds.
 // Handles cases where the daemon is alive but the task is orphaned
 // (e.g. agent process hung, daemon failed to report completion).
+// Running tasks are judged by silence (last heartbeat), not total runtime:
+// a long prompt with a live daemon must survive, a row nobody touches for
+// the whole threshold is stale. NULL heartbeat falls back to started_at.
 func (q *Queries) FailStaleTasks(ctx context.Context, arg FailStaleTasksParams) ([]AgentTaskQueue, error) {
 	rows, err := q.db.Query(ctx, failStaleTasks, arg.DispatchTimeoutSecs, arg.RunningTimeoutSecs)
 	if err != nil {
@@ -1567,6 +1570,56 @@ func (q *Queries) ListQueuedClaimCandidatesByRuntime(ctx context.Context, runtim
 	return items, nil
 }
 
+const listRecentTerminalTasksByRuntime = `-- name: ListRecentTerminalTasksByRuntime :many
+SELECT id, status, failure_reason, completed_at
+FROM agent_task_queue
+WHERE runtime_id = $1
+  AND status IN ('completed', 'failed', 'cancelled')
+  AND completed_at IS NOT NULL
+ORDER BY completed_at DESC
+LIMIT $2
+`
+
+type ListRecentTerminalTasksByRuntimeParams struct {
+	RuntimeID pgtype.UUID `json:"runtime_id"`
+	RowLimit  int32       `json:"row_limit"`
+}
+
+type ListRecentTerminalTasksByRuntimeRow struct {
+	ID            pgtype.UUID        `json:"id"`
+	Status        string             `json:"status"`
+	FailureReason pgtype.Text        `json:"failure_reason"`
+	CompletedAt   pgtype.Timestamptz `json:"completed_at"`
+}
+
+// Newest-first terminal history for a runtime, used by the startup-failure
+// circuit breaker (AITO-275) to detect an unbroken run of
+// agent_auth/api_unavailable failures.
+func (q *Queries) ListRecentTerminalTasksByRuntime(ctx context.Context, arg ListRecentTerminalTasksByRuntimeParams) ([]ListRecentTerminalTasksByRuntimeRow, error) {
+	rows, err := q.db.Query(ctx, listRecentTerminalTasksByRuntime, arg.RuntimeID, arg.RowLimit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListRecentTerminalTasksByRuntimeRow{}
+	for rows.Next() {
+		var i ListRecentTerminalTasksByRuntimeRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Status,
+			&i.FailureReason,
+			&i.CompletedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listTasksByIssue = `-- name: ListTasksByIssue :many
 SELECT id, agent_id, issue_id, status, priority, dispatched_at, started_at, completed_at, result, error, created_at, context, runtime_id, session_id, work_dir, trigger_comment_id, chat_session_id, autopilot_run_id, attempt, max_attempts, parent_task_id, failure_reason, last_heartbeat_at, trigger_summary, force_fresh_session FROM agent_task_queue
 WHERE issue_id = $1
@@ -1874,6 +1927,20 @@ func (q *Queries) StartAgentTask(ctx context.Context, id pgtype.UUID) (AgentTask
 		&i.ForceFreshSession,
 	)
 	return i, err
+}
+
+const touchTaskHeartbeat = `-- name: TouchTaskHeartbeat :exec
+UPDATE agent_task_queue
+SET last_heartbeat_at = now()
+WHERE id = $1 AND status IN ('dispatched', 'running')
+`
+
+// Proof-of-life touch from the daemon's regular calls (status poll, message
+// batches). Guarded by status so a late touch never writes into a row the
+// sweeper or a cancel already finalized.
+func (q *Queries) TouchTaskHeartbeat(ctx context.Context, id pgtype.UUID) error {
+	_, err := q.db.Exec(ctx, touchTaskHeartbeat, id)
+	return err
 }
 
 const updateAgent = `-- name: UpdateAgent :one

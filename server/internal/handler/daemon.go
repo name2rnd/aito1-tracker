@@ -102,6 +102,28 @@ func (h *Handler) requireDaemonTaskAccess(w http.ResponseWriter, r *http.Request
 	return task, true
 }
 
+// taskHeartbeatThrottle caps how often the daemon's regular calls write
+// last_heartbeat_at. The daemon polls task status every 5s and flushes
+// message batches every 500ms — without a throttle every call would turn
+// into an UPDATE.
+const taskHeartbeatThrottle = 30 * time.Second
+
+// touchTaskHeartbeat records proof of life for an active task (AITO-261).
+// FailStaleTasks judges running tasks by COALESCE(last_heartbeat_at,
+// started_at), so any regular daemon call counts as a heartbeat. Best-effort:
+// a failed touch must never break the calling handler.
+func (h *Handler) touchTaskHeartbeat(ctx context.Context, task db.AgentTaskQueue) {
+	if task.Status != "dispatched" && task.Status != "running" {
+		return
+	}
+	if task.LastHeartbeatAt.Valid && time.Since(task.LastHeartbeatAt.Time) < taskHeartbeatThrottle {
+		return
+	}
+	if err := h.Queries.TouchTaskHeartbeat(ctx, task.ID); err != nil {
+		slog.Warn("touch task heartbeat failed", "task_id", uuidToString(task.ID), "error", err)
+	}
+}
+
 // verifyDaemonWorkspaceAccess checks workspace access without writing an HTTP error.
 // Used in loops where individual items may be skipped silently.
 func (h *Handler) verifyDaemonWorkspaceAccess(r *http.Request, workspaceID string) bool {
@@ -1453,6 +1475,11 @@ func (h *Handler) GetTaskStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// The daemon polls this endpoint every 5s for the whole run — use it as
+	// proof of life even while the agent itself is silent (long thinking,
+	// slow tool call).
+	h.touchTaskHeartbeat(r.Context(), task)
+
 	writeJSON(w, http.StatusOK, map[string]string{"status": task.Status})
 }
 
@@ -1525,6 +1552,8 @@ func (h *Handler) ReportTaskMessages(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+
+	h.touchTaskHeartbeat(r.Context(), task)
 
 	workspaceID := ""
 	if task.IssueID.Valid {

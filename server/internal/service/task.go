@@ -325,6 +325,26 @@ func (s *TaskService) CancelTasksForIssue(ctx context.Context, issueID pgtype.UU
 	return nil
 }
 
+// CancelTasksForIssueAgent cancels the active tasks of a single agent on the
+// issue, reconciles that agent's status, and broadcasts task:cancelled.
+// Reassign uses this instead of CancelTasksForIssue so that switching the
+// assignee does not collateral-cancel tasks of other agents still working on
+// the same issue (@-mention, parallel subtask work) — AITO-323.
+func (s *TaskService) CancelTasksForIssueAgent(ctx context.Context, issueID, agentID pgtype.UUID) error {
+	cancelled, err := s.Queries.CancelAgentTasksByIssueAndAgent(ctx, db.CancelAgentTasksByIssueAndAgentParams{
+		IssueID: issueID,
+		AgentID: agentID,
+	})
+	if err != nil {
+		return err
+	}
+	for _, t := range cancelled {
+		s.ReconcileAgentStatus(ctx, t.AgentID)
+		s.broadcastTaskEvent(ctx, protocol.EventTaskCancelled, t)
+	}
+	return nil
+}
+
 // CancelTasksForAgent cancels every active task belonging to an agent
 // (queued + dispatched + running), reconciles the agent's status, and
 // broadcasts task:cancelled events. Used by the agent-level "Cancel all
@@ -502,6 +522,15 @@ func (s *TaskService) ClaimTaskForRuntime(ctx context.Context, runtimeID pgtype.
 	runtimeKey := util.UUIDToString(runtimeID)
 	if s.EmptyClaim.IsEmpty(ctx, runtimeKey) {
 		outcome = "empty_cache_hit"
+		return nil, nil
+	}
+
+	// Startup-failure circuit breaker (AITO-275): while the provider can't
+	// start sessions (expired auth, API outage), keep queued tasks parked
+	// instead of burning them. Checked after the empty-cache fast path so
+	// the idle-poll hot path stays off Postgres.
+	if StartupFailureBreakerOpen(ctx, s.Queries, runtimeID) {
+		outcome = "startup_breaker_open"
 		return nil, nil
 	}
 
@@ -963,7 +992,7 @@ func (s *TaskService) MaybeRetryFailedTask(ctx context.Context, parent db.AgentT
 // Tasks owned by other agents on the same issue (e.g. a parallel
 // @-mention agent) are left alone — rerun must not collateral-cancel
 // them.
-func (s *TaskService) RerunIssue(ctx context.Context, issueID pgtype.UUID, triggerCommentID pgtype.UUID) (*db.AgentTaskQueue, error) {
+func (s *TaskService) RerunIssue(ctx context.Context, issueID pgtype.UUID, triggerCommentID pgtype.UUID, forceFresh bool) (*db.AgentTaskQueue, error) {
 	issue, err := s.Queries.GetIssue(ctx, issueID)
 	if err != nil {
 		return nil, fmt.Errorf("load issue: %w", err)
@@ -990,7 +1019,7 @@ func (s *TaskService) RerunIssue(ctx context.Context, issueID pgtype.UUID, trigg
 		s.broadcastTaskEvent(ctx, protocol.EventTaskCancelled, t)
 	}
 
-	task, err := s.enqueueIssueTask(ctx, issue, triggerCommentID, true)
+	task, err := s.enqueueIssueTask(ctx, issue, triggerCommentID, forceFresh)
 	if err != nil {
 		return nil, err
 	}

@@ -895,6 +895,64 @@ WS-prepend новых комментов (`prependToLatestPage` при `isAtLate
 
 ---
 
+### Патч 28 — cancel-on-reassign скоупится на прежнего assignee (AITO-323)
+
+**Файлы (правки):**
+- `server/internal/service/task.go` — новый `CancelTasksForIssueAgent(ctx, issueID, agentID)`: обёртка над существующим sqlc-запросом `CancelAgentTasksByIssueAndAgent` + reconcile/broadcast per-row (зеркало `CancelTasksForIssue`).
+- `server/internal/handler/issue.go` — в ОБОИХ путях смены assignee (`UpdateIssue` и `BatchUpdateIssues`) безусловный `CancelTasksForIssue` заменён на скоупленный: отменяются только task'и прежнего assignee, и только если он был агентом (`prevIssue.AssigneeType=="agent"`). Cancel по статусу `cancelled` и при delete остался безусловным (намеренно).
+- `server/internal/handler/issue_reassign_test.go` (новый) — 4 теста: reassign не трогает task третьего агента (single + batch), reassign с member-assignee ничего не отменяет, статус `cancelled` отменяет всё.
+
+**Зачем:** reassign A→C убивал running-task агента B на том же issue (@-mention, параллельная работа). Brain-костыли `_settle_then_assign`/`_finalize_to_human` защищают task ИМЕННО прежнего assignee и потому остаются — этот патч закрывает только collateral по третьим агентам.
+
+**Если конфликт при merge/rebase:** держать скоуп-ветку `prevIssue.AssigneeType.String == "agent"` в обоих сайтах + метод `CancelTasksForIssueAgent` + тесты.
+
+---
+
+### Патч 29 — heartbeat задач: FailStaleTasks судит по молчанию, не по длительности (AITO-261)
+
+**Файлы (правки):**
+- `server/pkg/db/queries/agent.sql` — новый `TouchTaskHeartbeat :exec` (guard `status IN ('dispatched','running')`); в `FailStaleTasks` running-ветка переведена на `COALESCE(last_heartbeat_at, started_at)`. После правки — `make sqlc` (генерил sqlc v1.31.1, та же версия что у репо).
+- `server/internal/handler/daemon.go` — helper `touchTaskHeartbeat` (троттлинг 30с по уже загруженной строке task, best-effort) + вызовы в `GetTaskStatus` (daemon поллит каждые 5с весь прогон — якорь живости, независимый от молчания агента) и `ReportTaskMessages`.
+- `server/cmd/server/stale_heartbeat_test.go` (новый) — 4 query-теста: свежий heartbeat при 3-часовом started_at выживает, протухший фейлится, NULL → fallback к started_at, touch не пишет в терминальные строки.
+- `server/internal/handler/daemon_heartbeat_touch_test.go` (новый) — 4 handler-теста: touch из status-poll и messages, троттлинг свежего heartbeat.
+
+**Зачем:** sweeper убивал живые долгие прогоны (порог 9000с от `started_at`; 3 жертвы за 30 дней, паузы живого агента до 22 мин — эмпирика прод-БД). Семантика порога теперь «2.5ч молчания», кап на длительность остаётся на daemon-стороне (`MULTICA_AGENT_TIMEOUT`, 2ч). Колонка `last_heartbeat_at` существует с миграции 055 — новой миграции нет.
+
+**Если конфликт при merge/rebase:** держать COALESCE в running-ветке `FailStaleTasks` + `TouchTaskHeartbeat` + оба вызова `touchTaskHeartbeat` в handler'ах.
+
+---
+
+### Патч 30 — классификатор startup-фейлов + circuit breaker на claim/cron (AITO-275)
+
+**Файлы (правки):**
+- `server/internal/daemon/startup_failure.go` (новый) — `classifyStartupFailure(errText, tools)`: guard `tools==0`, regex-маркеры с прод-данных → `failure_reason` `agent_auth` (Not logged in / Invalid API key / run /login / organization has disabled) или `api_unavailable` (API Error 5xx / 429 quota / ConnectionRefused / unable to connect / unexpected server error). Эти reasons НЕ добавлены в исключения `GetLastTaskSession` — auth-фейл не отравляет сессию, resume сохраняется.
+- `server/internal/daemon/daemon.go` — вызов классификатора в default-ветке `runTask` ДО `appendFailureDiag`, `FailureReason` уходит в `TaskResult`.
+- `server/pkg/db/queries/agent.sql` — новый `ListRecentTerminalTasksByRuntime :many` (терминальная история runtime, newest-first, LIMIT).
+- `server/internal/service/startup_breaker.go` (новый) — stateless breaker: K=3 новейших терминальных задач runtime — все failed c startup-reason и новейший < 5 мин → ворота закрыты. Состояние живёт в самой истории задач (рестарты daemon — часть каскада, in-memory нельзя). После cooldown первый claim = health-проба. Fail-open на ошибке чтения.
+- `server/internal/service/task.go` — гейт в `ClaimTaskForRuntime` (после empty-cache fast path).
+- `server/cmd/server/autopilot_scheduler.go` — skip dispatch при открытом breaker'е (с advance next_run_at — расписание не залипает).
+- Тесты: `internal/daemon/startup_failure_test.go` (12 кейсов по реальным маркерам), `internal/service/startup_breaker_test.go` (7 кейсов verdict), `internal/handler/startup_breaker_gate_test.go` (3 интеграционных: гейт закрыт/реоткрылся после cooldown/игнорирует agent_error).
+
+**Зачем:** при протухшей auth / упавшем API каждая задача умирает за ~1с с 0 tool-calls, а autopilot-cron и рестарты daemon генерят новые прогоны часами (исторический инцидент: 4217 «task received», 400 рестартов). Queued-задачи безопасно держать в очереди (у них нет таймаута, в отличие от dispatched).
+
+**Если конфликт при merge/rebase:** держать классификатор+вызов в runTask, гейт в `ClaimTaskForRuntime`, skip в scheduler. Литералы reasons продублированы в service по той же конвенции, что исключения `GetLastTaskSession`.
+
+---
+
+### Патч 31 — `POST /rerun` принимает `{"force_fresh": false}` (resume-семантика, AITO-322)
+
+**Файлы (правки):**
+- `server/internal/handler/task_lifecycle.go` — `RerunIssue` читает опциональное JSON-body `{"force_fresh": bool}`; нет body / битое body = true (историческое поведение).
+- `server/internal/service/task.go` — `RerunIssue(..., forceFresh bool)` пробрасывает в `enqueueIssueTask` вместо хардкода `true`.
+- `server/cmd/server/rerun_session_test.go` — существующий вызов обновлён (`true`).
+- `server/internal/handler/rerun_force_fresh_test.go` (новый) — 3 теста: дефолт true, явное false → `force_fresh_session=false`, явное true.
+
+**Зачем:** Brain'у нужен способ ретраить упавшего Reflector'а с resume прежней сессии (упавшая `agent_error`-сессия резюмируема через `GetLastTaskSession`, частичная работа рефлексии не выбрасывается). До патча rerun всегда форсил fresh — кэш терялся.
+
+**Если конфликт при merge/rebase:** держать body-парсинг в handler + параметр `forceFresh` в сервисе.
+
+---
+
 ## Связанные правки **вне** этого репо (для полноты картины)
 
 Эти правки лежат в других репо/файлах, но без них наш форк работает не полностью. Они описаны отдельно — здесь только указатели:
