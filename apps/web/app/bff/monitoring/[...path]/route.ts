@@ -16,11 +16,23 @@ const ALLOWED = new Set([
   "classes",
   "facts",
   "rules",
+  "manners",
   "advice",
   "templates",
   "knowledges",
   "diary",
 ]);
+
+// Most subpaths live under Brain's /api/monitoring/*; manners is the manners
+// organ's own top-level endpoint (GET /api/manners, AITO-326) — same shape
+// (read-only JSON), different mount point.
+function brainTarget(sub: string, search: string): string {
+  const base =
+    sub === "manners"
+      ? `${BRAIN_URL}/api/manners`
+      : `${BRAIN_URL}/api/monitoring/${sub}`;
+  return `${base}${search}`;
+}
 
 const UPSTREAM_TIMEOUT_MS = 10_000;
 
@@ -37,7 +49,7 @@ export async function GET(
     return NextResponse.json({ detail: "not found" }, { status: 404 });
   }
 
-  const target = `${BRAIN_URL}/api/monitoring/${path[0]}${req.nextUrl.search}`;
+  const target = brainTarget(path[0]!, req.nextUrl.search);
   try {
     const upstream = await fetch(target, {
       headers: { accept: "application/json" },

@@ -115,6 +115,54 @@ export interface AdviceResponse {
   items: AdviceRow[];
 }
 
+// Manners — workshop conventions: global rules (class_id IS NULL) plus the
+// convention-miner candidate pool and the knowledge-loop engagement counters.
+// Mirrors brain/api/manners.py (GET /api/manners — top-level, not under
+// /api/monitoring/).
+export interface MannerRuleRow {
+  /** R-<id8> — what agents cite in comments. */
+  short_id: string;
+  /** planner | executor. */
+  agent_name: string;
+  /** positive | negative. */
+  kind: string;
+  /** display text (positive: content_text; negative: anti → instead). */
+  content: string;
+  applicability_hint: string | null;
+  /** active | tentative | archived. */
+  status: string;
+  /** exposure: times served into the recall manners section. */
+  applied_count: number;
+  /** use: R-citations / duplicate confirmations. */
+  approved_count: number;
+  decay_score: number;
+  last_confirmed_at: string | null;
+  added_at: string;
+  /** user | reflection | promotion (= convention miner). */
+  created_by: string;
+}
+
+export interface MannerCandidateRow {
+  /** F-<id8> of the convention-looking fact. */
+  fact_short_id: string;
+  alias: string;
+  reference_count: number;
+  /** distinct task classes the fact was cited from (breadth signal). */
+  distinct_classes: number;
+}
+
+export interface MannersEngagement {
+  howto_calls_7d: number;
+  howto_misses_7d: number;
+  pull_serves_7d: number;
+}
+
+export interface MannersResponse {
+  rules: MannerRuleRow[];
+  candidates: MannerCandidateRow[];
+  engagement: MannersEngagement;
+}
+
 export interface TemplateRow {
   id: string;
   class_id: string | null;

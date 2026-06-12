@@ -5,6 +5,7 @@ import type {
   FactQueriesResponse,
   FactsResponse,
   KnowledgesResponse,
+  MannersResponse,
   RulesResponse,
   TaskClassesResponse,
   TemplatesResponse,
@@ -38,6 +39,7 @@ export const monitoringKeys = {
   facts: (limit: number) => ["monitoring", "facts", limit] as const,
   rules: (limit: number) => ["monitoring", "rules", limit] as const,
   advice: (limit: number) => ["monitoring", "advice", limit] as const,
+  manners: () => ["monitoring", "manners"] as const,
   templates: (limit: number) => ["monitoring", "templates", limit] as const,
   knowledges: (limit: number) => ["monitoring", "knowledges", limit] as const,
   diary: (limit: number) => ["monitoring", "diary", limit] as const,
@@ -80,6 +82,16 @@ export function adviceOptions(limit = 200) {
   return queryOptions({
     queryKey: monitoringKeys.advice(limit),
     queryFn: () => getJson<AdviceResponse>(`/advice?limit=${limit}`),
+    staleTime: 30_000,
+  });
+}
+
+// One unpaginated payload: the global-rule pool is small by construction and
+// candidates are capped server-side (?candidates_limit, default 50).
+export function mannersOptions() {
+  return queryOptions({
+    queryKey: monitoringKeys.manners(),
+    queryFn: () => getJson<MannersResponse>(`/manners`),
     staleTime: 30_000,
   });
 }

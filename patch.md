@@ -954,6 +954,24 @@ WS-prepend новых комментов (`prependToLatestPage` при `isAtLate
 
 ---
 
+### Патч 32 — новый таб Monitoring → Manners (орган манер `GET /api/manners`, AITO-326)
+
+**Файлы (правки):**
+- `packages/core/monitoring/types.ts` — интерфейсы `MannerRuleRow` (short_id `R-<id8>`, agent_name, kind, content, applicability_hint, status, applied_count=served/approved_count=cited, decay_score, last_confirmed_at, added_at, created_by user/reflection/promotion), `MannerCandidateRow` (fact_short_id `F-<id8>`, alias, reference_count, distinct_classes), `MannersEngagement` (howto_calls_7d, howto_misses_7d, pull_serves_7d), `MannersResponse` — зеркало `brain/api/manners.py`. После `AdviceResponse`.
+- `packages/core/monitoring/queries.ts` — `monitoringKeys.manners()` + `mannersOptions()` → `getJson<MannersResponse>('/manners')` (без пагинации: пул global-правил мал по построению), staleTime 30_000.
+- `packages/views/monitoring/components/manners-tab.tsx` (новый) — три блока: (1) engagement-карточки за 7 дней (how-to calls / misses-gap / fact pulls), (2) таблица конвенций (Convention с wrap `max-w-0 whitespace-normal break-words`, бейдж kind=negative, short_id+hint моноширинно; Agent; StatusBadge active/tentative/archived c `opacity-50` у archived; Served/Cited; Born by бейдж; Added `formatWhen`), (3) таблица miner-кандидатов (Fact alias+`F-…`, References, Classes). Серверная сортировка не трогается. Никакого горизонтального скролла.
+- `packages/views/monitoring/components/monitoring-page.tsx` — `manners` в `TAB_KEYS` и `TAB_ICONS` (иконка `Handshake`) **между `rules` и `advice`**, рендер `<MannersTab/>`, deep-link `?tab=manners`.
+- `packages/views/locales/{en,zh-Hans}/monitoring.json` — `nav.manners` + блок `manners.*` (title/subtitle/col_*/engagement_*/candidates_*/empty). Парность ключей обязательна (vitest `locales/parity.test.ts`).
+- `apps/web/app/bff/monitoring/[...path]/route.ts` — `"manners"` в `ALLOWED` + хелпер `brainTarget(sub, search)`: для `manners` таргет `${BRAIN_URL}/api/manners` (топ-уровневый эндпоинт органа манер, НЕ `/api/monitoring/manners`), для остальных — прежний `/api/monitoring/<sub>`.
+
+**Зачем:** Monitoring-поверхность органа манер (plans/memory-redesign-2026-06-12.md, решение №10): global-правила (class_id IS NULL — конвенции мастерской из recall-секции manners) со счётчиками lifecycle, кандидаты майнера конвенций (read-only зеркало выборки следующего часового прохода, GET правил не рождает) и engagement петли знаний. Brain-эндпоинт `GET /api/manners?candidates_limit` — `brain/api/manners.py`.
+
+**Typecheck:** `pnpm turbo typecheck --filter=@multica/core --filter=@multica/views --filter=@multica/web` — зелёный; `pnpm vitest run locales/parity.test.ts` (packages/views) — зелёный.
+
+**Если конфликт при merge/rebase:** держать `"manners"` в ALLOWED + `brainTarget` (manners → `/api/manners`) в BFF, типы `Manner*` + `mannersOptions`/`monitoringKeys.manners`, `manners-tab.tsx`, регистрацию в `TAB_KEYS`/`TAB_ICONS`/`TabsContent`, парность `nav.manners` и блока `manners.*` в обеих локалях.
+
+---
+
 ## Связанные правки **вне** этого репо (для полноты картины)
 
 Эти правки лежат в других репо/файлах, но без них наш форк работает не полностью. Они описаны отдельно — здесь только указатели:
