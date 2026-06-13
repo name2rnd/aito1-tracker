@@ -335,6 +335,21 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 				})
 			})
 
+			// Routine task queue (AITO1 pull-режим): Brain enqueues, the
+			// Claude-Desktop routine consumes, Brain owns recovery
+			// (reclaim / complete-by-[PLAN] / backlog watchdog).
+			// plans/planner-routine-experiment-2026-06-13.md.
+			r.Route("/api/routine-tasks", func(r chi.Router) {
+				r.Post("/", h.EnqueueRoutineTask)
+				r.Get("/", h.ListRoutineTasks)
+				r.Get("/live", h.ListLiveRoutineTasks)
+				r.Get("/backlog-count", h.RoutineBacklogCount)
+				r.Post("/reclaim", h.ReclaimRoutineTasks)
+				r.Post("/complete-by-issue", h.CompleteRoutineTaskByIssue)
+				r.Post("/{id}/claim", h.ClaimRoutineTask)
+				r.Patch("/{id}", h.UpdateRoutineTask)
+			})
+
 			// Task messages (user-facing, not daemon auth)
 			r.Get("/api/tasks/{taskId}/messages", h.ListTaskMessagesByUser)
 

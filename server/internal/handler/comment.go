@@ -289,6 +289,23 @@ func isBrainDispatchedConfig(runtimeConfig []byte) bool {
 	return ok && v
 }
 
+// isPullScheduledConfig reports whether an agent's runtime_config carries
+// `pull_scheduled: true` — AITO1 pull-режим agents are launched by a
+// Claude-Desktop routine pulling routine_task_queue, NOT by on-assign push.
+// Bad/empty config → false (fail open to normal push behavior).
+// plans/planner-routine-experiment-2026-06-13.md.
+func isPullScheduledConfig(runtimeConfig []byte) bool {
+	if len(runtimeConfig) == 0 {
+		return false
+	}
+	var cfg map[string]any
+	if err := json.Unmarshal(runtimeConfig, &cfg); err != nil {
+		return false
+	}
+	v, ok := cfg["pull_scheduled"].(bool)
+	return ok && v
+}
+
 // commentMentionsOthersButNotAssignee returns true if the comment @mentions
 // anyone but does NOT @mention the issue's assignee agent. This is used to
 // suppress the on_comment trigger when the user is directing their comment at

@@ -972,6 +972,32 @@ WS-prepend новых комментов (`prependToLatestPage` при `isAtLate
 
 ---
 
+### Патч 19 — pull-режим: очередь `routine_task_queue` + флаг `pull_scheduled`
+
+**Файлы:**
+- `server/migrations/071_routine_task_queue.{up,down}.sql` — новая таблица очереди заданий для агентов-на-рутинах.
+- `server/pkg/db/queries/routine_task_queue.sql` — sqlc-запросы (enqueue ON CONFLICT, claim CAS, reclaim, complete-by-issue, backlog-count, list).
+- `server/internal/handler/routine_task.go` — 8 HTTP-эндпоинтов.
+- `server/cmd/server/router.go` — роуты `/api/routine-tasks` в workspace-scoped группе.
+- `server/internal/handler/issue.go` — `isPullScheduledConfig`-skip в `shouldEnqueueAgentTask`.
+- `server/internal/handler/comment.go` — helper `isPullScheduledConfig`.
+
+**Зачем:** перевод pipeline-агентов с push (multica-daemon + API, платим за токены) на pull через рутины Claude Desktop (flat-подписка). Brain пишет задание в `routine_task_queue`; рутина по cron читает pending, claim'ит (CAS + lease), исполняет роль, постит `[PLAN]` от имени агента (X-Agent-ID), Brain закрывает задание по факту маркера. Старт — Planner. plans/planner-routine-experiment-2026-06-13.md (arc-репо aito1).
+
+**Что изменено:**
+- Таблица `routine_task_queue` с partial-UNIQUE `(agent_id, issue_id, action) WHERE status IN ('pending','claimed')` — идемпотентный enqueue (дедуп, который push получал бесплатно от assignee-diff gate).
+- `claim` — атомарный CAS `UPDATE ... WHERE id=$1 AND status='pending' RETURNING` + lease (`lease_expires_at`) + `attempt++`; 409 на проигрыш CAS.
+- `reclaim` — stale `claimed` (lease истёк) → `pending` (retry) или `failed` (после `max_attempts`, dead-letter). Зовёт Brain в recovery_loop (второй канал, инвариант 5).
+- `isPullScheduledConfig(runtimeConfig) bool` — true если `agent.runtime_config.pull_scheduled == true`. В `shouldEnqueueAgentTask`: после ready-check, если assignee pull_scheduled → `return false` (нет on-assign push). Пустой/битый config → false.
+
+Флаг `pull_scheduled` ставится в live БД на Planner (`UPDATE agent SET runtime_config = runtime_config || '{"pull_scheduled":true}' WHERE name='Planner'`) ВМЕСТЕ с settings `planner.pull_mode=true` (иначе partial-state: push подавлен, очередь не пишется).
+
+**Не-pull агенты** (Executor/Reflector/Junior/autopilot) не затронуты — нет флага. `rerun` минует `shouldEnqueueAgentTask`, поэтому re-trigger pull-агентов подавляется НЕ флагом, а Brain-кодом (замена `_rerun_safe` на routine_enqueue в brain/listener).
+
+**Если конфликт при merge/rebase:** сохранить `isPullScheduledConfig`-skip в `shouldEnqueueAgentTask` (issue.go) и helper рядом с `isBrainDispatchedConfig` (comment.go). Миграция 071 + queries + handler + роуты аддитивны — конфликтов с upstream не ожидается.
+
+---
+
 ## Связанные правки **вне** этого репо (для полноты картины)
 
 Эти правки лежат в других репо/файлах, но без них наш форк работает не полностью. Они описаны отдельно — здесь только указатели:

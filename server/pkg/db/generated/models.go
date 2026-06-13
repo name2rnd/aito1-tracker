@@ -380,6 +380,22 @@ type ProjectResource struct {
 	CreatedBy    pgtype.UUID        `json:"created_by"`
 }
 
+type RoutineTaskQueue struct {
+	ID             pgtype.UUID        `json:"id"`
+	WorkspaceID    pgtype.UUID        `json:"workspace_id"`
+	AgentID        pgtype.UUID        `json:"agent_id"`
+	IssueID        pgtype.UUID        `json:"issue_id"`
+	Action         string             `json:"action"`
+	Context        []byte             `json:"context"`
+	Status         string             `json:"status"`
+	Attempt        int32              `json:"attempt"`
+	MaxAttempts    int32              `json:"max_attempts"`
+	LeaseExpiresAt pgtype.Timestamptz `json:"lease_expires_at"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+	ClaimedAt      pgtype.Timestamptz `json:"claimed_at"`
+	CompletedAt    pgtype.Timestamptz `json:"completed_at"`
+}
+
 type Skill struct {
 	ID          pgtype.UUID        `json:"id"`
 	WorkspaceID pgtype.UUID        `json:"workspace_id"`

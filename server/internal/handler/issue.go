@@ -1590,7 +1590,18 @@ func (h *Handler) shouldEnqueueAgentTask(ctx context.Context, issue db.Issue) bo
 	if issue.Status == "backlog" || issue.Status == "waiting" {
 		return false
 	}
-	return h.isAgentAssigneeReady(ctx, issue)
+	if !h.isAgentAssigneeReady(ctx, issue) {
+		return false
+	}
+	// AITO1 pull-режим: a pull_scheduled agent (Planner under the routine
+	// experiment) is NOT pushed via on-assign enqueue — Brain writes a
+	// routine_task_queue row and a Claude-Desktop routine executes it.
+	// plans/planner-routine-experiment-2026-06-13.md.
+	if agent, err := h.Queries.GetAgent(ctx, issue.AssigneeID); err == nil &&
+		isPullScheduledConfig(agent.RuntimeConfig) {
+		return false
+	}
+	return true
 }
 
 // shouldEnqueueOnComment returns true if a member comment on this issue should
