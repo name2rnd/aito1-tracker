@@ -998,6 +998,22 @@ WS-prepend новых комментов (`prependToLatestPage` при `isAtLate
 
 ---
 
+## Классификация transient API-падений на error-пути + retry api_unavailable (AITO1 reliability, 2026-06-23)
+
+**Файлы:**
+- `server/internal/daemon/daemon.go` — `handleTask` error-путь: `classifyStartupFailure(err.Error(), 0)` вместо хардкода `"agent_error"` в `FailTask`.
+- `server/internal/service/task.go` — `retryableReasons += "api_unavailable"`.
+
+**Зачем:** агент упал с «API Error: 529 Overloaded» (временный overload LLM). Падение пошло error-путём `executeAndDrain` → `handleTask` хардкодил `failure_reason="agent_error"`, минуя `classifyStartupFailure` (тот распознаёт 529 → `api_unavailable`, но висел только на result.Status-ветке). Из-за этого сервер-ретрай не срабатывал (`api_unavailable` не был в `retryableReasons`), а Brain видел `agent_error` вместо `api_unavailable` (ломало alert agents_down + watchdog-классификацию). Задача застревала в `todo`, окно WIP=1 вставало. (AIT-790; arc-репо aito1.)
+
+**Что изменено:**
+- error-путь `handleTask` классифицирует `err.Error()` через `classifyStartupFailure(…, tools=0)` (execute не вернул result → tool-call не было); неизвестная сигнатура → прежний `"agent_error"`.
+- `api_unavailable` добавлен в `retryableReasons` — ОДИН немедленный resume-retry (CreateRetryTask несёт session_id/work_dir). Колонки `not_before` нет → backoff в Go не делаем; повторные попытки с задержкой (~10 мин) делает Brain agent-watchdog (arc-репо aito1, `brain/listener/dispatch.py`). `agent_auth` НЕ retryable (нужен Human /login → Brain алертит).
+
+**Если конфликт при merge/rebase:** сохранить классификацию на error-пути `handleTask` (не возвращать к хардкоду `"agent_error"`) и `api_unavailable` в `retryableReasons`. Аддитивно, конфликтов с upstream не ожидается.
+
+---
+
 ## Связанные правки **вне** этого репо (для полноты картины)
 
 Эти правки лежат в других репо/файлах, но без них наш форк работает не полностью. Они описаны отдельно — здесь только указатели:
