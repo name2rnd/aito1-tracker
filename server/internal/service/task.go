@@ -910,10 +910,20 @@ func (s *TaskService) FailTask(ctx context.Context, taskID pgtype.UUID, errMsg, 
 // allowed to act on. Agent-side errors (compile failures, model rejections,
 // etc.) are intentionally excluded — those are real problems that the user
 // should see, not infrastructure flakiness.
+//
+// AITO1-patch: `api_unavailable` (transient LLM 5xx / 429 / overload) is
+// retryable — it's infrastructure flakiness, not the task. This gives ONE
+// immediate resume-retry (CreateRetryTask carries session_id/work_dir) that
+// rescues a blip that already cleared. There is no `not_before` column, so the
+// retry fires immediately — for a sustained 529 Overloaded the second attempt
+// will likely fail too, after which Brain's agent-watchdog (interval-based,
+// ~10 min) retries WITH backoff. `agent_auth` is NOT here: an expired token
+// won't fix itself, so Brain pages the Human instead.
 var retryableReasons = map[string]bool{
 	"runtime_offline":  true,
 	"runtime_recovery": true,
 	"timeout":          true,
+	"api_unavailable":  true,
 }
 
 // MaybeRetryFailedTask spawns a fresh queued attempt for a recently-failed

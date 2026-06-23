@@ -1455,7 +1455,18 @@ func (d *Daemon) handleTask(ctx context.Context, task Task, slot int) {
 		taskLog.Error("task failed", "error", err)
 		// runTask returned without a TaskResult, so we don't have a SessionID
 		// to forward — best we can do is record the failure.
-		if failErr := d.client.FailTask(ctx, task.ID, err.Error(), "", "", "agent_error"); failErr != nil {
+		// AITO1-patch: a hard execute error (529 Overloaded, connection refused,
+		// API outage) takes THIS path, where the failure_reason was hardcoded to
+		// the opaque "agent_error" — so classifyStartupFailure never ran and the
+		// transient nature was lost (retry path + Brain's api_unavailable alert
+		// both saw a generic agent error). The execute returned no result, so no
+		// tool call was made (tools=0): classify the message; an empty result
+		// (unknown signature) keeps the old "agent_error".
+		failureReason := classifyStartupFailure(err.Error(), 0)
+		if failureReason == "" {
+			failureReason = "agent_error"
+		}
+		if failErr := d.client.FailTask(ctx, task.ID, err.Error(), "", "", failureReason); failErr != nil {
 			taskLog.Error("fail task callback failed", "error", failErr)
 		}
 		return
