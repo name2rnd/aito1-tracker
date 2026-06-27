@@ -1014,6 +1014,29 @@ WS-prepend новых комментов (`prependToLatestPage` при `isAtLate
 
 ---
 
+### Патч 19 — Cognitive-PM кокпит (read-only вкладка + BFF)
+
+Аддитивная вкладка продуктового интеллекта (цифровой двойник): read-only окно в разум PM, который Brain держит
+в `aito1_pm_*` (личная цель / граф обязательств / лог решений). Исполнительная истина (вехи PDLC, задачи) — в
+Яндекс.Трекере, не здесь.
+
+**Что добавлено (всё аддитивно, upstream не трогает):**
+- BFF-прокси `apps/web/app/bff/pm/[...path]/route.ts` — same-origin, гейт по cookie `multica_logged_in`, форвард
+  на Brain `/api/pm/*` (read-only GET, allowlist `goal|commitments|decisions|lessons|error-metric`). Зеркало `bff/monitoring`.
+- `packages/core/cognitive-pm/{types,queries,index}.ts` + export `./cognitive-pm` в `packages/core/package.json`.
+- `packages/views/cognitive-pm/...` (view `CognitivePmPage`: 3 секции) + export `./cognitive-pm` в `packages/views/package.json`.
+- Страница `apps/web/app/[workspaceSlug]/(dashboard)/cognitive-pm/page.tsx` — реэкспорт. Доступна по URL
+  `/<ws>/cognitive-pm`; в nav-сайдбар (`packages/views/layout/app-sidebar.tsx`) ПОКА не добавлена (минимизация
+  риска ночной сборки — добавить отдельно). `project_id` захардкожен (единственный dogfood-проект).
+
+**Сборка/деплой:** `./scripts/aito1-deploy.sh frontend`. Проверено: build чистый (роуты `/[ws]/cognitive-pm` +
+`/bff/pm/[...path]`), homepage 200, `/bff/pm/*` 401 без cookie (гейт), страница 200.
+
+**Если конфликт при merge/rebase:** всё аддитивно (новые файлы + по одной строке в двух `package.json` exports);
+конфликтов с upstream не ожидается.
+
+---
+
 ## Связанные правки **вне** этого репо (для полноты картины)
 
 Эти правки лежат в других репо/файлах, но без них наш форк работает не полностью. Они описаны отдельно — здесь только указатели:

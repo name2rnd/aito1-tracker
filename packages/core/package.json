@@ -48,6 +48,7 @@
     "./runtimes/hooks": "./runtimes/hooks.ts",
     "./agents": "./agents/index.ts",
     "./monitoring": "./monitoring/index.ts",
+    "./cognitive-pm": "./cognitive-pm/index.ts",
     "./agents/queries": "./agents/queries.ts",
     "./agents/derive-presence": "./agents/derive-presence.ts",
     "./agents/use-agent-presence": "./agents/use-agent-presence.ts",
