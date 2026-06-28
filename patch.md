@@ -1037,6 +1037,48 @@ WS-prepend новых комментов (`prependToLatestPage` при `isAtLate
 
 ---
 
+### Патч 20 — Cognitive-PM HITL: панель «задачи на владельца + вердикт» + nav-вкладка
+
+Достройка кокпита под новый механизм HITL (когнитивный PM/CR ставит задачи НА владельца в multica; его триаж —
+сигнал обучения). Бэкенд — в arc-репо AITO1 (`aito1_pm_owner_tasks` + `/api/pm/owner-task[s]`); здесь — форк-часть.
+
+**Что добавлено (аддитивно):**
+- BFF allowlist (`apps/web/app/bff/pm/[...path]/route.ts`): +`owner-tasks` в `ALLOWED`.
+- `packages/core/cognitive-pm/{types,queries}.ts`: тип `OwnerTaskTriage` + `ownerTasksOptions` → `/bff/pm/owner-tasks/{pid}`.
+- `packages/views/cognitive-pm/.../cognitive-pm-page.tsx`: секция `OwnerTasksSection` (кто PM/CR · задача · твои
+  комментарии · вердикт badge). Вставлена после «Личная цель».
+- **Nav-вкладка** (ранее отложенная): `paths.ts` (+`cognitivePm()`), `reserved-slugs.ts` (+`cognitive-pm`),
+  `locales/{en,zh-Hans}/layout.json` (+`nav.cognitive_pm`), `app-sidebar.tsx` (иконка `Brain`, `NavKey`/`NavLabelKey`
+  +`cognitivePm`, пункт в `workspaceNav`).
+
+**Сборка/деплой:** `STANDALONE=true pnpm --filter web build` чистый → `./scripts/aito1-deploy.sh frontend`. Проверено:
+страница `/<ws>/cognitive-pm` 200, homepage 200, `/bff/pm/owner-tasks/*` 401 без cookie (гейт).
+
+**Если конфликт:** аддитивно; единственная точка касания upstream — `app-sidebar.tsx` (один пункт + иконка) и
+`paths.ts`/`reserved-slugs.ts`/`layout.json` (по одной строке).
+
+---
+
+### Патч 21 — Cognitive-PM кокпит v2: чекпоинты вместо личной цели + тип поручения
+
+Перестройка концепта (личной цели у двойника нет → цель = закрыть вехи Трекера; недельная декомпозиция = чекпоинты
+у нас; поручения несут `kind`). Бэкенд — в arc-репо AITO1; здесь форк-часть кокпита.
+
+**Что изменено (аддитивно к Патч 19/20):**
+- `packages/core/cognitive-pm/types.ts`: `Goal` → `Checkpoint` (milestone_key/title/target_date/status);
+  `OwnerTaskTriage` +`kind`.
+- `packages/core/cognitive-pm/queries.ts`: `goalOptions` → `checkpointsOptions` (`/bff/pm/checkpoints/{pid}`).
+- `packages/views/cognitive-pm/.../cognitive-pm-page.tsx`: `GoalSection` → `CheckpointsSection` (миницель/веха/
+  срок/статус); в `OwnerTasksSection` — `KIND_LABEL` (тип поручения под заголовком).
+- `apps/web/app/bff/pm/[...path]/route.ts`: allowlist `goal` → `checkpoints`.
+
+**Сборка/деплой:** build чистый (нет ссылок на `Goal`), `./scripts/aito1-deploy.sh frontend`. Проверено: страница
+`/<ws>/cognitive-pm` 200, `/bff/pm/checkpoints/*` 401 без cookie (гейт).
+
+**Если конфликт:** аддитивно, всё в `packages/{core,views}/cognitive-pm` + одна строка allowlist; upstream не трогает.
+
+---
+
 ## Связанные правки **вне** этого репо (для полноты картины)
 
 Эти правки лежат в других репо/файлах, но без них наш форк работает не полностью. Они описаны отдельно — здесь только указатели:

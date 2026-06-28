@@ -27,6 +27,7 @@ function workspaceScoped(slug: string) {
     agents: () => `${ws}/agents`,
     agentDetail: (id: string) => `${ws}/agents/${encode(id)}`,
     monitoring: () => `${ws}/monitoring`,
+    cognitivePm: () => `${ws}/cognitive-pm`,
     inbox: () => `${ws}/inbox`,
     myIssues: () => `${ws}/my-issues`,
     runtimes: () => `${ws}/runtimes`,

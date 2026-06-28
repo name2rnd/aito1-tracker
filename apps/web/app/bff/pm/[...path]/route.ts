@@ -14,11 +14,12 @@ const BRAIN_URL = process.env.AITO1_BRAIN_URL ?? "http://127.0.0.1:8082";
 // First path segment must be one of these Brain /api/pm/* read surfaces — never
 // an open relay.
 const ALLOWED = new Set([
-  "goal",
+  "checkpoints",
   "commitments",
   "decisions",
   "lessons",
   "error-metric",
+  "owner-tasks",
 ]);
 
 const UPSTREAM_TIMEOUT_MS = 10_000;

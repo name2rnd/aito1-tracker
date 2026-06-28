@@ -68,6 +68,7 @@ export const RESERVED_SLUGS = new Set([
   "autopilots",
   "agents",
   "monitoring",
+  "cognitive-pm",
   "inbox",
   "my-issues",
   "runtimes",

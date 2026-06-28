@@ -19,6 +19,7 @@ import {
   ListTodo,
   Bot,
   Activity,
+  Brain,
   Monitor,
   ChevronDown,
   ChevronRight,
@@ -108,6 +109,7 @@ type NavKey =
   | "autopilots"
   | "agents"
   | "monitoring"
+  | "cognitivePm"
   | "runtimes"
   | "skills"
   | "settings";
@@ -121,6 +123,7 @@ type NavLabelKey =
   | "autopilots"
   | "agents"
   | "monitoring"
+  | "cognitive_pm"
   | "runtimes"
   | "skills"
   | "settings";
@@ -136,6 +139,7 @@ const workspaceNav: { key: NavKey; labelKey: NavLabelKey; icon: typeof Inbox }[]
   { key: "autopilots", labelKey: "autopilots", icon: Zap },
   { key: "agents", labelKey: "agents", icon: Bot },
   { key: "monitoring", labelKey: "monitoring", icon: Activity },
+  { key: "cognitivePm", labelKey: "cognitive_pm", icon: Brain },
 ];
 
 const configureNav: { key: NavKey; labelKey: NavLabelKey; icon: typeof Inbox }[] = [

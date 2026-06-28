@@ -1,5 +1,5 @@
 import { queryOptions } from "@tanstack/react-query";
-import type { Commitment, Decision, Goal } from "./types";
+import type { Checkpoint, Commitment, Decision, OwnerTaskTriage } from "./types";
 
 // Cognitive-PM cockpit data comes from Brain (it owns the aito1_pm_* tables),
 // reached through a same-origin Next.js BFF proxy at /bff/pm — NOT /api/ (which
@@ -20,19 +20,18 @@ async function getJson<T>(path: string): Promise<T> {
 
 export const cognitivePmKeys = {
   all: ["cognitive-pm"] as const,
-  goal: (pid: string) => ["cognitive-pm", "goal", pid] as const,
+  checkpoints: (pid: string) => ["cognitive-pm", "checkpoints", pid] as const,
   commitments: (pid: string) => ["cognitive-pm", "commitments", pid] as const,
   decisions: (pid: string) => ["cognitive-pm", "decisions", pid] as const,
+  ownerTasks: (pid: string) => ["cognitive-pm", "owner-tasks", pid] as const,
 };
 
-// Goal: 404 from Brain means "no goal bootstrapped yet" — a valid state, so no
-// retry (the view renders an empty message on error).
-export function goalOptions(pid: string) {
+// Чекпоинты — недельная декомпозиция вехи (наши). Личной цели у двойника нет.
+export function checkpointsOptions(pid: string) {
   return queryOptions({
-    queryKey: cognitivePmKeys.goal(pid),
-    queryFn: () => getJson<Goal>(`/goal/${pid}`),
+    queryKey: cognitivePmKeys.checkpoints(pid),
+    queryFn: () => getJson<Checkpoint[]>(`/checkpoints/${pid}`),
     staleTime: 30_000,
-    retry: false,
   });
 }
 
@@ -48,6 +47,14 @@ export function decisionsOptions(pid: string) {
   return queryOptions({
     queryKey: cognitivePmKeys.decisions(pid),
     queryFn: () => getJson<Decision[]>(`/decisions/${pid}`),
+    staleTime: 30_000,
+  });
+}
+
+export function ownerTasksOptions(pid: string) {
+  return queryOptions({
+    queryKey: cognitivePmKeys.ownerTasks(pid),
+    queryFn: () => getJson<OwnerTaskTriage[]>(`/owner-tasks/${pid}`),
     staleTime: 30_000,
   });
 }
