@@ -3,6 +3,7 @@ module github.com/multica-ai/multica/server
 go 1.26.1
 
 require (
+	github.com/adhocore/gronx v1.20.0
 	github.com/aws/aws-sdk-go-v2 v1.41.5
 	github.com/aws/aws-sdk-go-v2/config v1.32.13
 	github.com/aws/aws-sdk-go-v2/credentials v1.19.13
@@ -21,7 +22,6 @@ require (
 	github.com/prometheus/client_golang v1.23.2
 	github.com/redis/go-redis/v9 v9.18.0
 	github.com/resend/resend-go/v2 v2.28.0
-	github.com/robfig/cron/v3 v3.0.1
 	github.com/spf13/cobra v1.10.2
 )
 

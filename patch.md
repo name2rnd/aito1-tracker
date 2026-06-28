@@ -1079,6 +1079,26 @@ WS-prepend новых комментов (`prependToLatestPage` при `isAtLate
 
 ---
 
+## Cron-парсер автопилотов: robfig/cron → gronx (2026-06-28)
+
+**Зачем:** автопилот-расписания нужны для процессов, привязанных к ДНЯМ НЕДЕЛИ (напр. месячный контур
+Cognitive PM — каждую 4-ю пятницу 17:00). `robfig/cron/v3` не умеет nth-weekday: `5#4` даёт ошибку парсинга, а
+both-set day-of-month + day-of-week трактуется как OR (нельзя выразить «4-я пятница»).
+
+**Что:** `server/internal/service/cron.go` — `ComputeNextRun` переписан с `robfig/cron/v3` на
+`github.com/adhocore/gronx` (валидация `gronx.New().IsValid`, расчёт `gronx.NextTickAfter(expr, now.In(loc), false)`).
+gronx поддерживает `#` (nth weekday), `L` (last), `W` (nearest). `go.mod`/`go.sum`: + gronx v1.20.0, − robfig/cron
+(больше нигде не использовался). Сигнатура `ComputeNextRun`/`ValidateTimezone` не менялась — все вызовы
+(`autopilot_scheduler.go`, `handler/autopilot.go`) работают как раньше; стандартные 5-полевые выражения совместимы.
+
+**Проверено:** `0 17 * * 5#4` @ Europe/Moscow → 24.07 / 28.08 / 25.09 (все 4-е пятницы); `0 11 1 * *` → 1-е число
+(обратная совместимость); `5L` → последняя пятница. Триггер месячного автопилота переведён на `0 17 * * 5#4`.
+
+**Сборка/деплой:** `./scripts/aito1-deploy.sh backend`. **Если конфликт:** правка изолирована в одном файле
+`service/cron.go` + go.mod/sum; upstream cron-логику не трогает.
+
+---
+
 ## Связанные правки **вне** этого репо (для полноты картины)
 
 Эти правки лежат в других репо/файлах, но без них наш форк работает не полностью. Они описаны отдельно — здесь только указатели:
