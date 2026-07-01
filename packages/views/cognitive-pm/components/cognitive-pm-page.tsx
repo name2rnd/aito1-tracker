@@ -157,6 +157,7 @@ function DecisionsSection() {
             <TableHeader>
               <TableRow>
                 <TableHead className="w-20">Контур</TableHead>
+                <TableHead className="w-28">Записано</TableHead>
                 <TableHead>Обоснование</TableHead>
                 <TableHead>Ожидаемый результат</TableHead>
                 <TableHead className="w-16 text-right">Увер.</TableHead>
@@ -167,6 +168,9 @@ function DecisionsSection() {
                 <TableRow key={d.id}>
                   <TableCell className="align-top text-xs text-muted-foreground">
                     {d.contour}
+                  </TableCell>
+                  <TableCell className="align-top whitespace-nowrap text-xs text-muted-foreground">
+                    {fmtDate(d.decided_at)}
                   </TableCell>
                   <TableCell className="max-w-0 align-top whitespace-normal">
                     <div className="break-words text-sm">{d.rationale}</div>
