@@ -990,8 +990,10 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
               </div>
             </div>
 
-            {/* Comment input — at the top, before the feed (newest-first) */}
-            <div className="mt-4 mb-4">
+            {/* Comment input — sticky at the top of the scroll area, before the
+                feed (newest-first), so you can keep typing edits while scrolling
+                through a long agent comment without hunting for the box. */}
+            <div className="sticky top-0 z-20 bg-background pt-4 pb-3">
               <CommentInput issueId={id} onSubmit={submitComment} />
             </div>
 
