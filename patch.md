@@ -1205,6 +1205,33 @@ eslint по изменённым каталогам — чисто (единст
 
 ---
 
+### Патч 36 — Cognitive-PM: кнопки approve/retire уроков (гейт тренера, первые POST в BFF)
+
+Владелец одобрила вариант (а) вопроса №3 плана `junior-pm-system-2026-07-02.md`: активация урока — кнопкой в
+кокпите. Это ПЕРВЫЕ и единственные мутации из UI кокпита; всё остальное остаётся read-only.
+
+**Файлы:**
+- `apps/web/app/bff/pm/[...path]/route.ts` — POST-хэндлер с shape-based allowlist ровно двух путей:
+  `lesson/{uuid}/approve` и `lesson/{uuid}/status` (3 сегмента, литералы + UUID-regex — не префикс, расширение
+  в open relay невозможно). Body проксируется как есть; гейт по той же session cookie; 10s timeout / 502 как в GET.
+- `packages/core/cognitive-pm/mutations.ts` *(новый)* — `useApproveLesson` (POST approve БЕЗ body — контракт
+  `brain/api/pm.py`: approve actor не принимает, owner зашит в Brain) и `useSetLessonStatus`
+  (`{"status":"retired"|"quarantined","actor":"owner"}`); onSettled — invalidate `lessons(pid)` +
+  `lessonEvents(lessonId)` (таймлайн, если раскрыт, перечитывается). `index.ts` — экспорт.
+- `packages/views/cognitive-pm/components/cognitive-pm-page.tsx`, `LessonCard`: на quarantined — «Одобрить»
+  (один клик, без подтверждений — ритуал субботнего разбора) + «В retired»; на active — только «В retired»;
+  retired — без кнопок. Retire — через AlertDialog-подтверждение (в тексте: tombstone, ключ external_id
+  освобождается). Кнопки disabled на время мутации; success/error — toast.
+
+**Контракт Brain (сверен по `brain/api/pm.py`, не менялся):** POST `/pm/lesson/{id}/approve` без body → `{ok}`;
+POST `/pm/lesson/{id}/status` c `LessonStatusRequest` → `{ok}`, 404 если урок не найден (пробрасывается через BFF).
+
+**Проверки:** typecheck core/views/web — чисто; eslint изменённых каталогов — чисто. Сборка/деплой не выполнялись.
+
+**Если конфликт:** аддитивно (новый POST-хэндлер + mutations.ts + один компонент); upstream не трогает.
+
+---
+
 ## Связанные правки **вне** этого репо (для полноты картины)
 
 Эти правки лежат в других репо/файлах, но без них наш форк работает не полностью. Они описаны отдельно — здесь только указатели:

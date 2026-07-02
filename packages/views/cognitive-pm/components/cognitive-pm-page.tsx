@@ -14,6 +14,8 @@ import {
   lessonsOptions,
   ownerTasksOptions,
   resolvedDecisionsOptions,
+  useApproveLesson,
+  useSetLessonStatus,
 } from "@multica/core/cognitive-pm";
 import type {
   CalibrationRow,
@@ -23,7 +25,18 @@ import type {
   ResolvedDecision,
 } from "@multica/core/cognitive-pm";
 import type { AgentTask } from "@multica/core/types/agent";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@multica/ui/components/ui/alert-dialog";
 import { Badge } from "@multica/ui/components/ui/badge";
+import { Button } from "@multica/ui/components/ui/button";
 import {
   Table,
   TableBody,
@@ -35,13 +48,15 @@ import {
 import { cn } from "@multica/ui/lib/utils";
 import { TranscriptButton } from "../../common/task-transcript";
 
-// Cockpit for the cognitive PM (digital twin). Read-only window onto the twin's
-// mind held in Brain (aito1_pm_*): weekly checkpoints (to Tracker milestones),
-// owner-tasks + verdict, awaited commitments, open + resolved decision log,
-// lessons with their learning delta-log, calibration curve. The twin has no
-// personal goal — the goal is closing Tracker milestones on time. Execution truth
-// (milestones, tasks) lives in Yandex Tracker, read-only. Single dogfood project.
-// Цель витрины — разбор решения тренером за ≤5 минут (план junior-pm §8).
+// Cockpit for the cognitive PM (digital twin). Window onto the twin's mind held
+// in Brain (aito1_pm_*): weekly checkpoints (to Tracker milestones), owner-tasks
+// + verdict, awaited commitments, open + resolved decision log, lessons with
+// their learning delta-log, calibration curve. Read-only except the trainer's
+// lesson gate (approve / retire — the only UI mutations, через BFF POST-allowlist).
+// The twin has no personal goal — the goal is closing Tracker milestones on time.
+// Execution truth (milestones, tasks) lives in Yandex Tracker, read-only.
+// Single dogfood project. Цель витрины — разбор решения тренером за ≤5 минут
+// (план junior-pm §8).
 const PROJECT_ID = "6318c78d-4044-452c-99df-ca9db44d678c";
 
 function fmtDate(d: string | null): string {
@@ -518,8 +533,32 @@ function LessonTimeline({ lessonId }: { lessonId: string }) {
 
 function LessonCard({ lesson }: { lesson: Lesson }) {
   const [expanded, setExpanded] = useState(false);
+  const [retireOpen, setRetireOpen] = useState(false);
+  const approve = useApproveLesson(PROJECT_ID);
+  const setStatus = useSetLessonStatus(PROJECT_ID);
+  const mutating = approve.isPending || setStatus.isPending;
   const scopeIn = lesson.scope_in ?? [];
   const scopeOut = lesson.scope_out ?? [];
+
+  // Гейт тренера: approve — один клик (ритуал субботнего разбора, без лишних
+  // подтверждений); retire — с confirm-диалогом (tombstone, но решение весомое).
+  const handleApprove = () => {
+    approve.mutate(lesson.id, {
+      onSuccess: () => toast.success("Урок одобрен — active"),
+      onError: () => toast.error("Не удалось одобрить урок"),
+    });
+  };
+  const handleRetire = () => {
+    setRetireOpen(false);
+    setStatus.mutate(
+      { lessonId: lesson.id, status: "retired" },
+      {
+        onSuccess: () => toast.success("Урок отправлен в retired"),
+        onError: () => toast.error("Не удалось изменить статус урока"),
+      },
+    );
+  };
+
   return (
     <div className="rounded-lg border bg-background p-3">
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
@@ -541,19 +580,70 @@ function LessonCard({ lesson }: { lesson: Lesson }) {
         >
           помог {lesson.helpful_count} · вредил {lesson.harmful_count}
         </span>
-        <button
-          type="button"
-          onClick={() => setExpanded((v) => !v)}
-          className="ml-auto flex items-center gap-1 rounded px-1.5 py-0.5 text-xs text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground"
-        >
-          {expanded ? (
-            <ChevronDown className="h-3.5 w-3.5" />
-          ) : (
-            <ChevronRight className="h-3.5 w-3.5" />
+        <span className="ml-auto flex items-center gap-1.5">
+          {lesson.status === "quarantined" && (
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={mutating}
+              onClick={handleApprove}
+              className="h-6 border-emerald-500/40 px-2 text-xs text-emerald-600 hover:bg-emerald-500/10 dark:text-emerald-400"
+            >
+              Одобрить
+            </Button>
           )}
-          таймлайн
-        </button>
+          {lesson.status !== "retired" && (
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={mutating}
+              onClick={() => setRetireOpen(true)}
+              className="h-6 px-2 text-xs text-muted-foreground"
+            >
+              В retired
+            </Button>
+          )}
+          <button
+            type="button"
+            onClick={() => setExpanded((v) => !v)}
+            className="flex items-center gap-1 rounded px-1.5 py-0.5 text-xs text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground"
+          >
+            {expanded ? (
+              <ChevronDown className="h-3.5 w-3.5" />
+            ) : (
+              <ChevronRight className="h-3.5 w-3.5" />
+            )}
+            таймлайн
+          </button>
+        </span>
       </div>
+      <AlertDialog
+        open={retireOpen}
+        onOpenChange={(v) => {
+          if (!mutating) setRetireOpen(v);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Отправить урок в retired?</AlertDialogTitle>
+            <AlertDialogDescription className="break-words">
+              Урок перестанет читаться контурами. Строка останется в журнале
+              (tombstone, не удаление); ключ external_id освободится для новой
+              версии урока.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={mutating}>Отмена</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleRetire}
+              disabled={mutating}
+              className="bg-destructive text-white hover:bg-destructive/90"
+            >
+              В retired
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
       <div className="mt-2 break-words text-sm">{lesson.lesson_text}</div>
       {lesson.trigger_condition && (
         <div className="mt-1 break-words text-xs text-muted-foreground">
