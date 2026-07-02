@@ -1,7 +1,7 @@
 /* eslint-disable i18next/no-literal-string */
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { ChevronDown, ChevronRight, Copy } from "lucide-react";
 import { toast } from "sonner";
@@ -162,6 +162,185 @@ function DecisionEvidence({
   );
 }
 
+// --- Вводный блок: «открыл — и сразу всё вспомнил» ---------------------------
+// Компактная легенда слоёв + схема связей. Сворачиваемый, по умолчанию
+// развёрнут; состояние — в localStorage (читается в useEffect, чтобы SSR-разметка
+// не расходилась с клиентской).
+
+const INTRO_LS_KEY = "aito1-pm-cockpit-intro-collapsed";
+
+function scrollToSection(id: string) {
+  document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+const LEGEND: { title: string; target: string; text: string }[] = [
+  {
+    title: "Чекпоинты",
+    target: "pm-checkpoints",
+    text: "недельные мини-цели ближайшей вехи Трекера: месячный контур режет веху, суточный ведёт, недельный закрывает.",
+  },
+  {
+    title: "Лог решений",
+    target: "pm-decisions",
+    text: "каждое решение PM записано до действия: обоснование, источники (чипы), отвергнутые альтернативы и фальсифицируемое ожидание (предикат + уверенность). Здесь висят открытые — их ожидание ещё не проверено.",
+  },
+  {
+    title: "Закрытые решения",
+    target: "pm-resolved",
+    text: "ожидание сверено с реальностью (Трекер) или таймаутом: исход correct / partial / error / no_response. Твоя отмена поручения автоматически = error. Из исходов считаются Brier и калибровка.",
+  },
+  {
+    title: "Поручения",
+    target: "pm-owner-tasks",
+    text: "задачи на тебе — единственный канал действий PM наружу; твои вердикты (сделала / поправила / отменила + комментарий) записываются и питают обучение.",
+  },
+  {
+    title: "Обязательства",
+    target: "pm-commitments",
+    text: "параллельный реестр «кто → кому → что → к сроку» из решений и переписки; суточный контур следит, просрочка/нарушение — сигнал алгедоники в Telegram.",
+  },
+  {
+    title: "Уроки",
+    target: "pm-lessons",
+    text: "субботний Cognitive Reflector разбирает закрытые решения и твои вердикты за неделю и извлекает уроки (рождаются в карантине). Кнопка «Одобрить» делает урок активным — PM читает его в начале каждого прогона. Таймлайн урока: что изменил, куда встроено, сработал ли.",
+  },
+  {
+    title: "Калибровка",
+    target: "pm-calibration",
+    text: "сверка заявленной уверенности с фактической сбываемостью по типам решений («на 0.9 сбываешься в 0.5» = перекалиброван) — вход субботнего разбора.",
+  },
+];
+
+// Узел схемы: с target — кликабельный (скроллит к секции), без — пунктирный
+// контекстный (у слоя нет своей секции на странице).
+function SchemeNode({ target, children }: { target?: string; children: ReactNode }) {
+  if (!target) {
+    return (
+      <span className="rounded border border-dashed bg-muted/30 px-2 py-0.5 text-[11px] text-muted-foreground">
+        {children}
+      </span>
+    );
+  }
+  return (
+    <button
+      type="button"
+      onClick={() => scrollToSection(target)}
+      className="rounded border bg-muted/40 px-2 py-0.5 text-[11px] font-medium transition-colors hover:bg-muted"
+    >
+      {children}
+    </button>
+  );
+}
+
+function SchemeArrow({ label }: { label?: string }) {
+  return (
+    <span className="text-[11px] text-muted-foreground">
+      {label ? `— ${label} →` : "→"}
+    </span>
+  );
+}
+
+function SchemeRow({ children }: { children: ReactNode }) {
+  return <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1">{children}</div>;
+}
+
+function IntroSection() {
+  const [collapsed, setCollapsed] = useState(false);
+  useEffect(() => {
+    try {
+      if (window.localStorage.getItem(INTRO_LS_KEY) === "1") setCollapsed(true);
+    } catch {
+      // localStorage недоступен (private mode) — остаёмся развёрнутыми.
+    }
+  }, []);
+  const toggle = () => {
+    setCollapsed((v) => {
+      const next = !v;
+      try {
+        window.localStorage.setItem(INTRO_LS_KEY, next ? "1" : "0");
+      } catch {
+        // ок, просто не запомним.
+      }
+      return next;
+    });
+  };
+  return (
+    <section className="mb-8 rounded-lg border bg-muted/20 p-3">
+      <button
+        type="button"
+        onClick={toggle}
+        className="flex w-full items-center gap-1.5 text-left text-sm font-semibold"
+      >
+        {collapsed ? (
+          <ChevronRight className="h-3.5 w-3.5 shrink-0" />
+        ) : (
+          <ChevronDown className="h-3.5 w-3.5 shrink-0" />
+        )}
+        Как читать эту страницу
+      </button>
+      {!collapsed && (
+        <div className="mt-3 space-y-4">
+          <div className="space-y-1.5">
+            {LEGEND.map((item) => (
+              <div
+                key={item.target}
+                className="break-words text-xs leading-relaxed text-muted-foreground"
+              >
+                <button
+                  type="button"
+                  onClick={() => scrollToSection(item.target)}
+                  className="font-medium text-foreground hover:underline"
+                >
+                  {item.title}
+                </button>
+                {" — "}
+                {item.text}
+              </div>
+            ))}
+          </div>
+          <div className="space-y-1.5 border-t pt-3">
+            <SchemeRow>
+              <SchemeNode>SENSE: встречи · почта · тикеты · комменты</SchemeNode>
+              <SchemeArrow />
+              <SchemeNode target="pm-decisions">РЕШЕНИЯ (журнал)</SchemeNode>
+              <SchemeArrow />
+              <SchemeNode target="pm-owner-tasks">ПОРУЧЕНИЯ тебе</SchemeNode>
+              <SchemeArrow />
+              <SchemeNode>твои вердикты</SchemeNode>
+              <SchemeArrow />
+              <span className="text-[11px] text-muted-foreground">в исходы решений</span>
+            </SchemeRow>
+            <SchemeRow>
+              <SchemeNode target="pm-decisions">РЕШЕНИЯ</SchemeNode>
+              <SchemeArrow label="проверка ожидания: Трекер / таймаут" />
+              <SchemeNode target="pm-resolved">ЗАКРЫТЫЕ РЕШЕНИЯ</SchemeNode>
+              <SchemeArrow />
+              <SchemeNode target="pm-calibration">КАЛИБРОВКА (Brier)</SchemeNode>
+            </SchemeRow>
+            <SchemeRow>
+              <SchemeNode target="pm-resolved">ЗАКРЫТЫЕ РЕШЕНИЯ</SchemeNode>
+              <SchemeArrow />
+              <SchemeNode>CR (суббота)</SchemeNode>
+              <SchemeArrow />
+              <SchemeNode target="pm-lessons">УРОКИ</SchemeNode>
+              <span className="text-[11px] text-muted-foreground">
+                : карантин → «Одобрить» → active → в поведение PM
+              </span>
+            </SchemeRow>
+            <SchemeRow>
+              <SchemeNode target="pm-commitments">ОБЯЗАТЕЛЬСТВА</SchemeNode>
+              <SchemeArrow />
+              <SchemeNode>АЛГЕДОНИКА</SchemeNode>
+              <SchemeArrow />
+              <SchemeNode>Telegram (раз в день)</SchemeNode>
+            </SchemeRow>
+          </div>
+        </div>
+      )}
+    </section>
+  );
+}
+
 // Цель двойника = закрыть вехи Трекера в срок (личной цели нет). Вехи живут в
 // Трекере (артефакт); здесь — НАША недельная декомпозиция ближайшей вехи (чекпоинты).
 const CHECKPOINT_STATUS_LABEL: Record<string, string> = {
@@ -174,7 +353,7 @@ const CHECKPOINT_STATUS_LABEL: Record<string, string> = {
 function CheckpointsSection() {
   const { data, isLoading, isError } = useQuery(checkpointsOptions(PROJECT_ID));
   return (
-    <section className="mb-8">
+    <section className="mb-8" id="pm-checkpoints">
       <h2 className="mb-3 text-base font-semibold">Чекпоинты недели (к вехам)</h2>
       {isLoading ? (
         <div className="text-sm text-muted-foreground">Загрузка…</div>
@@ -184,7 +363,7 @@ function CheckpointsSection() {
         <div className="text-sm text-muted-foreground">Чекпоинтов нет.</div>
       ) : (
         <div className="overflow-hidden rounded-lg border bg-background">
-          <Table>
+          <Table className="table-fixed">
             <TableHeader>
               <TableRow>
                 <TableHead>Миницель недели</TableHead>
@@ -196,7 +375,7 @@ function CheckpointsSection() {
             <TableBody>
               {data.map((c) => (
                 <TableRow key={c.id}>
-                  <TableCell className="max-w-0 align-top whitespace-normal">
+                  <TableCell className="align-top whitespace-normal">
                     <div className="break-words text-sm">{c.title}</div>
                   </TableCell>
                   <TableCell className="align-top text-xs text-muted-foreground">
@@ -223,7 +402,7 @@ function CheckpointsSection() {
 function CommitmentsSection() {
   const { data, isLoading, isError } = useQuery(commitmentsOptions(PROJECT_ID));
   return (
-    <section className="mb-8">
+    <section className="mb-8" id="pm-commitments">
       <h2 className="mb-3 text-base font-semibold">Ожидаемые обязательства</h2>
       {isLoading ? (
         <div className="text-sm text-muted-foreground">Загрузка…</div>
@@ -235,10 +414,13 @@ function CommitmentsSection() {
         </div>
       ) : (
         <div className="overflow-hidden rounded-lg border bg-background">
-          <Table>
+          {/* table-fixed: авто-раскладка отдавала всю ширину колонке «Кто → кому»
+              (без max-w-0), а «Что» (max-w-0) схлопывалась в вертикальный столбец
+              по букве. Явные ширины: первая ~35%, «Что» — остаток. */}
+          <Table className="table-fixed">
             <TableHeader>
               <TableRow>
-                <TableHead>Кто → кому</TableHead>
+                <TableHead className="w-[35%]">Кто → кому</TableHead>
                 <TableHead>Что</TableHead>
                 <TableHead className="w-28">Срок</TableHead>
                 <TableHead className="w-24">Статус</TableHead>
@@ -250,7 +432,7 @@ function CommitmentsSection() {
                   <TableCell className="align-top text-sm whitespace-normal break-words">
                     {c.debtor} → {c.creditor}
                   </TableCell>
-                  <TableCell className="max-w-0 align-top whitespace-normal">
+                  <TableCell className="align-top whitespace-normal">
                     <div className="break-words text-sm">{c.condition_text}</div>
                   </TableCell>
                   <TableCell className="align-top whitespace-nowrap text-xs text-muted-foreground">
@@ -272,7 +454,7 @@ function CommitmentsSection() {
 function DecisionsSection() {
   const { data, isLoading, isError } = useQuery(decisionsOptions(PROJECT_ID));
   return (
-    <section className="mb-8">
+    <section className="mb-8" id="pm-decisions">
       <h2 className="mb-3 text-base font-semibold">Лог решений (открытые)</h2>
       {isLoading ? (
         <div className="text-sm text-muted-foreground">Загрузка…</div>
@@ -284,7 +466,7 @@ function DecisionsSection() {
         </div>
       ) : (
         <div className="overflow-hidden rounded-lg border bg-background">
-          <Table>
+          <Table className="table-fixed">
             <TableHeader>
               <TableRow>
                 <TableHead className="w-20">Контур</TableHead>
@@ -304,14 +486,14 @@ function DecisionsSection() {
                   <TableCell className="align-top whitespace-nowrap text-xs text-muted-foreground">
                     {fmtDate(d.decided_at)}
                   </TableCell>
-                  <TableCell className="max-w-0 align-top whitespace-normal">
+                  <TableCell className="align-top whitespace-normal">
                     <div className="break-words text-sm">{d.rationale}</div>
                     <DecisionEvidence
                       refs={d.info_basis_refs ?? []}
                       alternatives={d.alternatives ?? []}
                     />
                   </TableCell>
-                  <TableCell className="max-w-0 align-top whitespace-normal">
+                  <TableCell className="align-top whitespace-normal">
                     <div className="break-words text-sm">
                       {d.expected_artifact}
                     </div>
@@ -427,7 +609,7 @@ function ResolvedDecisionsSection() {
     resolvedDecisionsOptions(PROJECT_ID),
   );
   return (
-    <section className="mb-8">
+    <section className="mb-8" id="pm-resolved">
       <h2 className="mb-3 text-base font-semibold">Закрытые решения</h2>
       {isLoading ? (
         <div className="text-sm text-muted-foreground">Загрузка…</div>
@@ -668,7 +850,7 @@ function LessonCard({ lesson }: { lesson: Lesson }) {
 function LessonsSection() {
   const { data, isLoading, isError } = useQuery(lessonsOptions(PROJECT_ID));
   return (
-    <section className="mb-8">
+    <section className="mb-8" id="pm-lessons">
       <h2 className="mb-3 text-base font-semibold">Уроки</h2>
       {isLoading ? (
         <div className="text-sm text-muted-foreground">Загрузка…</div>
@@ -710,7 +892,7 @@ function CalibrationSection() {
     a === NO_TYPE ? 1 : b === NO_TYPE ? -1 : a.localeCompare(b),
   );
   return (
-    <section className="mb-8">
+    <section className="mb-8" id="pm-calibration">
       <h2 className="mb-3 text-base font-semibold">Калибровка</h2>
       {isLoading ? (
         <div className="text-sm text-muted-foreground">Загрузка…</div>
@@ -794,7 +976,7 @@ function verdictVariant(v: string): "secondary" | "outline" | "destructive" {
 function OwnerTasksSection() {
   const { data, isLoading, isError } = useQuery(ownerTasksOptions(PROJECT_ID));
   return (
-    <section className="mb-8">
+    <section className="mb-8" id="pm-owner-tasks">
       <h2 className="mb-3 text-base font-semibold">Задачи на тебе + твой вердикт</h2>
       {isLoading ? (
         <div className="text-sm text-muted-foreground">Загрузка…</div>
@@ -804,7 +986,7 @@ function OwnerTasksSection() {
         <div className="text-sm text-muted-foreground">Поставленных задач нет.</div>
       ) : (
         <div className="overflow-hidden rounded-lg border bg-background">
-          <Table>
+          <Table className="table-fixed">
             <TableHeader>
               <TableRow>
                 <TableHead className="w-12">Кто</TableHead>
@@ -819,14 +1001,14 @@ function OwnerTasksSection() {
                   <TableCell className="align-top text-xs text-muted-foreground">
                     {t.lesson_id ? "CR" : "PM"}
                   </TableCell>
-                  <TableCell className="max-w-0 align-top whitespace-normal">
+                  <TableCell className="align-top whitespace-normal">
                     <div className="break-words text-sm">{t.title}</div>
                     <div className="mt-0.5 text-xs text-muted-foreground">
                       {KIND_LABEL[t.kind] ?? t.kind}
                       {t.issue_key ? ` · ${t.issue_key}` : ""}
                     </div>
                   </TableCell>
-                  <TableCell className="max-w-0 align-top whitespace-normal">
+                  <TableCell className="align-top whitespace-normal">
                     {t.owner_comments.length === 0 ? (
                       <span className="text-xs text-muted-foreground">—</span>
                     ) : (
@@ -862,6 +1044,7 @@ export function CognitivePmPage() {
         <h1 className="mb-4 text-sm font-semibold">
           Когнитивный PM — двойник проекта
         </h1>
+        <IntroSection />
         <CheckpointsSection />
         <OwnerTasksSection />
         <CommitmentsSection />
