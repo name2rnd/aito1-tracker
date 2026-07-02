@@ -1170,6 +1170,41 @@ eslint по изменённым каталогам — чисто (единст
 
 ---
 
+### Патч 35 — ложный failed прогона: completion демона бьёт вердикт runtime_offline
+
+Живой кейс 2026-07-02 (task `9e616824`, autopilot run `3b14aba4`, daily-контур Cognitive PM): демон 4 минуты не
+хартбитил (10:53–10:57), runtime sweeper пометил runtime offline и через `FailTasksForOfflineRuntimes` уронил
+задачу в `failed / 'runtime went offline'` → autopilot-listener уронил ран. Демон при этом был жив (status-poll
+через 100 мс после вердикта), агент доработал ещё 15 минут и в 11:12:19 отправил `POST /complete` —
+`CompleteAgentTask` (guard `status='running'`) вернул 0 строк, и completion молча ушёл в
+«already finalized» no-op. И задача, и ран остались лживо failed при полностью сделанной работе.
+
+**Фикс:** completion демона — доказательство, что процесс выжил и доделал; оно выигрывает у догадки sweeper'а.
+
+**Файлы:**
+- `server/pkg/db/queries/agent.sql` — новый query `ReviveRuntimeOfflineTask`: guarded UPDATE
+  `WHERE status='failed' AND failure_reason='runtime_offline'` → `completed`, чистит error/failure_reason,
+  COALESCE-ит session_id/work_dir. Настоящие фейлы (agent_error/timeout/iteration_limit/…) не оживают —
+  guard по failure_reason.
+- `server/internal/service/task.go` — `CompleteTask`: в ErrNoRows-ветке ПЕРЕД «already finalized» —
+  revive-попытка; при успехе выполняется штатный completion-flow (коммент-fallback, reconcile,
+  `EventTaskCompleted`) → autopilot-listener → `SyncRunFromTask` видит completed-задачу → ран completed
+  (сверка финального статуса задачи в agent_task_queue: задача completed → ран completed).
+- `server/pkg/db/queries/autopilot.sql` — `UpdateAutopilotRunCompleted` += `failure_reason = NULL`
+  (у completed-рана не бывает причины фейла; иначе оживший ран показывал бы зелёный статус с красным текстом).
+- `server/pkg/db/generated/{agent,autopilot}.sql.go` — `sqlc generate` (v1.31.1, совпадает с checked-in).
+- `server/internal/service/task_complete_race_test.go` — `TestCompleteTask_RevivesFalseRuntimeOfflineFailure`
+  (mock: CompleteAgentTask мимо, revive попадает → задача возвращается completed).
+
+**Проверки:** `go build ./...` OK; `go test ./internal/service/ ./pkg/agent/... -count=1` OK.
+Бинарь не пересобран и не задеплоен — для прод-эффекта нужен `./scripts/aito1-deploy.sh backend`.
+
+**Если конфликт:** upstream активно правит `task.go` — сохранить семантику «в ErrNoRows-ветке CompleteTask
+сначала guarded revive по failure_reason='runtime_offline', и только потом idempotent no-op». Если upstream
+сам начнёт различать false-fail — принять upstream, наш query удалить.
+
+---
+
 ## Связанные правки **вне** этого репо (для полноты картины)
 
 Эти правки лежат в других репо/файлах, но без них наш форк работает не полностью. Они описаны отдельно — здесь только указатели:

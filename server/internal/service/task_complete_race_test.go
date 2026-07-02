@@ -125,6 +125,71 @@ func TestCompleteTask_AlreadyFinalized(t *testing.T) {
 	}
 }
 
+// mockReviveDBTX simulates the false runtime_offline sequence (AITO1-patch):
+// the regular CompleteAgentTask UPDATE misses (the sweeper already flipped the
+// task to failed/'runtime went offline'), while the guarded revive UPDATE
+// matches and returns the resurrected completed row.
+type mockReviveDBTX struct {
+	task db.AgentTaskQueue
+}
+
+func (m *mockReviveDBTX) Exec(_ context.Context, _ string, _ ...interface{}) (pgconn.CommandTag, error) {
+	return pgconn.NewCommandTag(""), nil
+}
+
+func (m *mockReviveDBTX) Query(_ context.Context, _ string, _ ...interface{}) (pgx.Rows, error) {
+	return nil, pgx.ErrNoRows
+}
+
+func (m *mockReviveDBTX) QueryRow(_ context.Context, sql string, _ ...interface{}) pgx.Row {
+	// ReviveRuntimeOfflineTask — the guarded revive UPDATE matches.
+	if strings.Contains(sql, "failure_reason = 'runtime_offline'") {
+		revived := m.task
+		revived.Status = "completed"
+		return &mockRow{task: &revived}
+	}
+	// CompleteAgentTask / any other status UPDATE — no rows.
+	if strings.Contains(sql, "SET status =") {
+		return &mockRow{err: pgx.ErrNoRows}
+	}
+	// GetAgentTask — the stored (failed) task.
+	return &mockRow{task: &m.task}
+}
+
+// TestCompleteTask_RevivesFalseRuntimeOfflineFailure: a daemon reporting a
+// real completion beats the runtime sweeper's 'runtime went offline' verdict —
+// the task must come back completed instead of the silent already-finalized
+// no-op that kept both the task and its autopilot run falsely failed
+// (live case: task 9e616824 / run 3b14aba4, 2026-07-02).
+func TestCompleteTask_RevivesFalseRuntimeOfflineFailure(t *testing.T) {
+	taskID := testUUID(1)
+	agentID := testUUID(2)
+
+	mock := &mockReviveDBTX{task: db.AgentTaskQueue{
+		ID:      taskID,
+		AgentID: agentID,
+		Status:  "failed",
+	}}
+	svc := &TaskService{
+		Queries: db.New(mock),
+		Bus:     events.New(),
+	}
+
+	got, err := svc.CompleteTask(context.Background(), taskID, nil, "", "")
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if got == nil {
+		t.Fatal("expected task, got nil")
+	}
+	if got.Status != "completed" {
+		t.Errorf("expected revived status %q, got %q", "completed", got.Status)
+	}
+	if got.ID != taskID {
+		t.Error("returned task ID doesn't match")
+	}
+}
+
 func TestFailTask_AlreadyFinalized(t *testing.T) {
 	taskID := testUUID(1)
 	agentID := testUUID(2)

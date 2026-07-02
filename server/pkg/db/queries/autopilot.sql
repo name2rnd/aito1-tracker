@@ -123,8 +123,12 @@ WHERE id = $1
 RETURNING *;
 
 -- name: UpdateAutopilotRunCompleted :one
+-- failure_reason is cleared: a completed run has no failure. Matters on the
+-- revive path (see ReviveRuntimeOfflineTask in agent.sql) where a run first
+-- falsely failed with 'runtime went offline' and later flips to completed.
 UPDATE autopilot_run
-SET status = 'completed', completed_at = now(), result = sqlc.narg('result')
+SET status = 'completed', completed_at = now(), result = sqlc.narg('result'),
+    failure_reason = NULL
 WHERE id = $1
 RETURNING *;
 

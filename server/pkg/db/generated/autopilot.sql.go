@@ -859,7 +859,8 @@ func (q *Queries) UpdateAutopilotLastRunAt(ctx context.Context, id pgtype.UUID) 
 
 const updateAutopilotRunCompleted = `-- name: UpdateAutopilotRunCompleted :one
 UPDATE autopilot_run
-SET status = 'completed', completed_at = now(), result = $2
+SET status = 'completed', completed_at = now(), result = $2,
+    failure_reason = NULL
 WHERE id = $1
 RETURNING id, autopilot_id, trigger_id, source, status, issue_id, task_id, triggered_at, completed_at, failure_reason, trigger_payload, result, created_at
 `
@@ -869,6 +870,9 @@ type UpdateAutopilotRunCompletedParams struct {
 	Result []byte      `json:"result"`
 }
 
+// failure_reason is cleared: a completed run has no failure. Matters on the
+// revive path (see ReviveRuntimeOfflineTask in agent.sql) where a run first
+// falsely failed with 'runtime went offline' and later flips to completed.
 func (q *Queries) UpdateAutopilotRunCompleted(ctx context.Context, arg UpdateAutopilotRunCompletedParams) (AutopilotRun, error) {
 	row := q.db.QueryRow(ctx, updateAutopilotRunCompleted, arg.ID, arg.Result)
 	var i AutopilotRun

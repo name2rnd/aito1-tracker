@@ -222,6 +222,23 @@ SET status = 'completed', completed_at = now(), result = $2, session_id = $3, wo
 WHERE id = $1 AND status = 'running'
 RETURNING *;
 
+-- name: ReviveRuntimeOfflineTask :one
+-- AITO1-patch (ложный failed прогона): the runtime sweeper fails
+-- dispatched/running tasks the moment their runtime misses the heartbeat
+-- window ('runtime went offline'). The daemon may merely have been
+-- unreachable (laptop sleep, network blip) while the agent process kept
+-- working; when the daemon later reports a real completion, that report wins
+-- over the sweeper's guess — flip the row back to completed and clear the
+-- false verdict. Guarded by failure_reason='runtime_offline' so genuine
+-- failures (agent_error, timeout, iteration_limit, …) can never be revived.
+UPDATE agent_task_queue
+SET status = 'completed', completed_at = now(), result = $2,
+    error = NULL, failure_reason = NULL,
+    session_id = COALESCE(sqlc.narg('session_id'), session_id),
+    work_dir = COALESCE(sqlc.narg('work_dir'), work_dir)
+WHERE id = $1 AND status = 'failed' AND failure_reason = 'runtime_offline'
+RETURNING *;
+
 -- name: GetLastTaskSession :one
 -- Returns the session_id and work_dir from the most recent task for a given
 -- (agent_id, issue_id) pair, used for session resumption. We accept both

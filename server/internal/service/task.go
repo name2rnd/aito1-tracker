@@ -666,34 +666,72 @@ func (s *TaskService) CompleteTask(ctx context.Context, taskID pgtype.UUID, resu
 		}
 		return nil
 	}); err != nil {
-		// When parallel agents race, a task may already be completed,
-		// cancelled, or failed by the time this call runs. The UPDATE
-		// … WHERE status = 'running' returns no rows in that case.
-		// Treat it as an idempotent success — same pattern as CancelTask.
-		if existing, lookupErr := s.Queries.GetAgentTask(ctx, taskID); lookupErr == nil {
-			if errors.Is(err, pgx.ErrNoRows) {
-				slog.Info("complete task: already finalized",
+		// AITO1-patch (ложный failed прогона): one "finalized" state is NOT
+		// final truth — 'failed / runtime went offline', written by the
+		// runtime sweeper while the daemon was merely unreachable (heartbeat
+		// gap: laptop sleep, network blip). The daemon reporting a completion
+		// right now proves the agent process survived and finished, so the
+		// completion wins over the sweeper's guess: revive the row to
+		// completed (guarded UPDATE — any other failure class no-ops into
+		// ErrNoRows) and fall through to the normal completion side effects,
+		// so EventTaskCompleted reaches the autopilot listener and the linked
+		// autopilot run flips completed too. The chat_session resume pointer
+		// is intentionally not touched here — the mid-flight
+		// UpdateAgentTaskSession pin plus the COALESCE in the revive UPDATE
+		// keep it usable. Live case: task 9e616824 / autopilot run 3b14aba4,
+		// 2026-07-02 (cognitive-PM daily kept working 15 min past the false
+		// verdict, then hit the silent already-finalized no-op).
+		revived := false
+		if errors.Is(err, pgx.ErrNoRows) {
+			if t, reviveErr := s.Queries.ReviveRuntimeOfflineTask(ctx, db.ReviveRuntimeOfflineTaskParams{
+				ID:        taskID,
+				Result:    result,
+				SessionID: pgtype.Text{String: sessionID, Valid: sessionID != ""},
+				WorkDir:   pgtype.Text{String: workDir, Valid: workDir != ""},
+			}); reviveErr == nil {
+				slog.Info("complete task: revived false runtime_offline failure",
+					"task_id", util.UUIDToString(t.ID),
+					"agent_id", util.UUIDToString(t.AgentID),
+				)
+				task = t
+				revived = true
+			} else if !errors.Is(reviveErr, pgx.ErrNoRows) {
+				slog.Warn("complete task: revive attempt failed",
+					"task_id", util.UUIDToString(taskID),
+					"error", reviveErr,
+				)
+			}
+		}
+		if !revived {
+			// When parallel agents race, a task may already be completed,
+			// cancelled, or failed by the time this call runs. The UPDATE
+			// … WHERE status = 'running' returns no rows in that case.
+			// Treat it as an idempotent success — same pattern as CancelTask.
+			if existing, lookupErr := s.Queries.GetAgentTask(ctx, taskID); lookupErr == nil {
+				if errors.Is(err, pgx.ErrNoRows) {
+					slog.Info("complete task: already finalized",
+						"task_id", util.UUIDToString(taskID),
+						"current_status", existing.Status,
+						"agent_id", util.UUIDToString(existing.AgentID),
+					)
+					return &existing, nil
+				}
+				slog.Warn("complete task failed",
 					"task_id", util.UUIDToString(taskID),
 					"current_status", existing.Status,
+					"issue_id", util.UUIDToString(existing.IssueID),
+					"chat_session_id", util.UUIDToString(existing.ChatSessionID),
 					"agent_id", util.UUIDToString(existing.AgentID),
+					"error", err,
 				)
-				return &existing, nil
+			} else {
+				slog.Warn("complete task failed: task not found",
+					"task_id", util.UUIDToString(taskID),
+					"lookup_error", lookupErr,
+				)
 			}
-			slog.Warn("complete task failed",
-				"task_id", util.UUIDToString(taskID),
-				"current_status", existing.Status,
-				"issue_id", util.UUIDToString(existing.IssueID),
-				"chat_session_id", util.UUIDToString(existing.ChatSessionID),
-				"agent_id", util.UUIDToString(existing.AgentID),
-				"error", err,
-			)
-		} else {
-			slog.Warn("complete task failed: task not found",
-				"task_id", util.UUIDToString(taskID),
-				"lookup_error", lookupErr,
-			)
+			return nil, fmt.Errorf("complete task: %w", err)
 		}
-		return nil, fmt.Errorf("complete task: %w", err)
 	}
 
 	slog.Info("task completed", "task_id", util.UUIDToString(task.ID), "issue_id", util.UUIDToString(task.IssueID))

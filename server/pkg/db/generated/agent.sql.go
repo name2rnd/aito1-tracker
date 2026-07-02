@@ -1889,6 +1889,69 @@ func (q *Queries) RestoreAgent(ctx context.Context, id pgtype.UUID) (Agent, erro
 	return i, err
 }
 
+const reviveRuntimeOfflineTask = `-- name: ReviveRuntimeOfflineTask :one
+UPDATE agent_task_queue
+SET status = 'completed', completed_at = now(), result = $2,
+    error = NULL, failure_reason = NULL,
+    session_id = COALESCE($3, session_id),
+    work_dir = COALESCE($4, work_dir)
+WHERE id = $1 AND status = 'failed' AND failure_reason = 'runtime_offline'
+RETURNING id, agent_id, issue_id, status, priority, dispatched_at, started_at, completed_at, result, error, created_at, context, runtime_id, session_id, work_dir, trigger_comment_id, chat_session_id, autopilot_run_id, attempt, max_attempts, parent_task_id, failure_reason, last_heartbeat_at, trigger_summary, force_fresh_session
+`
+
+type ReviveRuntimeOfflineTaskParams struct {
+	ID        pgtype.UUID `json:"id"`
+	Result    []byte      `json:"result"`
+	SessionID pgtype.Text `json:"session_id"`
+	WorkDir   pgtype.Text `json:"work_dir"`
+}
+
+// AITO1-patch (ложный failed прогона): the runtime sweeper fails
+// dispatched/running tasks the moment their runtime misses the heartbeat
+// window ('runtime went offline'). The daemon may merely have been
+// unreachable (laptop sleep, network blip) while the agent process kept
+// working; when the daemon later reports a real completion, that report wins
+// over the sweeper's guess — flip the row back to completed and clear the
+// false verdict. Guarded by failure_reason='runtime_offline' so genuine
+// failures (agent_error, timeout, iteration_limit, …) can never be revived.
+func (q *Queries) ReviveRuntimeOfflineTask(ctx context.Context, arg ReviveRuntimeOfflineTaskParams) (AgentTaskQueue, error) {
+	row := q.db.QueryRow(ctx, reviveRuntimeOfflineTask,
+		arg.ID,
+		arg.Result,
+		arg.SessionID,
+		arg.WorkDir,
+	)
+	var i AgentTaskQueue
+	err := row.Scan(
+		&i.ID,
+		&i.AgentID,
+		&i.IssueID,
+		&i.Status,
+		&i.Priority,
+		&i.DispatchedAt,
+		&i.StartedAt,
+		&i.CompletedAt,
+		&i.Result,
+		&i.Error,
+		&i.CreatedAt,
+		&i.Context,
+		&i.RuntimeID,
+		&i.SessionID,
+		&i.WorkDir,
+		&i.TriggerCommentID,
+		&i.ChatSessionID,
+		&i.AutopilotRunID,
+		&i.Attempt,
+		&i.MaxAttempts,
+		&i.ParentTaskID,
+		&i.FailureReason,
+		&i.LastHeartbeatAt,
+		&i.TriggerSummary,
+		&i.ForceFreshSession,
+	)
+	return i, err
+}
+
 const startAgentTask = `-- name: StartAgentTask :one
 UPDATE agent_task_queue
 SET status = 'running', started_at = now()
