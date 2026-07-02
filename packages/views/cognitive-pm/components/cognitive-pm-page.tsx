@@ -45,6 +45,11 @@ import {
   TableHeader,
   TableRow,
 } from "@multica/ui/components/ui/table";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@multica/ui/components/ui/tooltip";
 import { cn } from "@multica/ui/lib/utils";
 import { TranscriptButton } from "../../common/task-transcript";
 
@@ -207,7 +212,7 @@ const LEGEND: { title: string; target: string; text: string }[] = [
   {
     title: "Калибровка",
     target: "pm-calibration",
-    text: "сверка заявленной уверенности с фактической сбываемостью по типам решений («на 0.9 сбываешься в 0.5» = перекалиброван) — вход субботнего разбора.",
+    text: "сверка заявленной уверенности с фактической сбываемостью по типам решений. Хорошо калиброванный PM, говоря «90%», прав в ~9 случаях из 10; LLM систематически переуверены, поэтому меряем по данным, а не спрашиваем модель. Перекос → урок CR; сводка поедет в контекст PM при решениях.",
   },
 ];
 
@@ -878,6 +883,36 @@ function bucketLabel(bucket: number): string {
 
 const NO_TYPE = "без типа";
 
+// Подсказка в заголовке колонки: пунктирное подчёркивание + tooltip дизайн-системы
+// (max-w-xs и text-xs уже вшиты в TooltipContent).
+function HeadHint({ label, hint }: { label: string; hint: string }) {
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={<span />}
+        className="cursor-help underline decoration-dotted underline-offset-2"
+      >
+        {label}
+      </TooltipTrigger>
+      <TooltipContent className="text-left leading-relaxed">
+        {hint}
+      </TooltipContent>
+    </Tooltip>
+  );
+}
+
+// Тексты владельца — «калибровка — сложная штука», объясняем на месте.
+const CAL_HINTS = {
+  type: "Считается по типам: агент может быть трезв в сроках и переуверен в качестве. «Без типа» — решения до введения словаря типов.",
+  bucket:
+    "Корзина заявленной уверенности (децили): «70–80%» = все решения, где PM заявлял уверенность в этом диапазоне.",
+  n: "Сколько закрытых решений в корзине. Пока n меньше ~10 — строка анекдот, не статистика.",
+  hitRate:
+    "Фактическая сбываемость корзины: сбылось = 1, частично = 0.5, ошибка = 0, усреднено. Читай в паре с бакетом: заявлял 70–80%, сбывается 0.5 → переуверен на ~25 пунктов.",
+  brier:
+    "Квадрат промаха (уверенность − исход)²: 0 — идеальный прогнозист, 0.25 — уровень «всегда 50/50», 1 — уверенно ошибался. Ненахакиваем: улучшается только реальным улучшением прогнозов, поэтому PM не видит его как цель.",
+};
+
 function CalibrationSection() {
   const { data, isLoading, isError } = useQuery(calibrationOptions(PROJECT_ID));
   const groups = new Map<string, CalibrationRow[]>();
@@ -893,7 +928,13 @@ function CalibrationSection() {
   );
   return (
     <section className="mb-8" id="pm-calibration">
-      <h2 className="mb-3 text-base font-semibold">Калибровка</h2>
+      <h2 className="mb-1 text-base font-semibold">Калибровка</h2>
+      <p className="mb-3 max-w-3xl break-words text-xs leading-relaxed text-muted-foreground">
+        Сверка заявленной уверенности PM с фактической сбываемостью его решений,
+        по типам решений. Вход субботнего разбора CR: систематический перекос в
+        типе — кандидат в урок. Позже сводка будет вставляться в контекст PM при
+        принятии решений («на 0.9 ты сбываешься в 0.62 — занижай»).
+      </p>
       {isLoading ? (
         <div className="text-sm text-muted-foreground">Загрузка…</div>
       ) : isError ? (
@@ -907,16 +948,24 @@ function CalibrationSection() {
           {keys.map((key) => (
             <div key={key}>
               <div className="mb-1.5 text-xs font-medium text-muted-foreground">
-                {key}
+                <HeadHint label={key} hint={CAL_HINTS.type} />
               </div>
               <div className="overflow-hidden rounded-lg border bg-background">
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead className="w-28">Уверенность</TableHead>
-                      <TableHead className="w-16 text-right">n</TableHead>
-                      <TableHead className="w-24 text-right">hit rate</TableHead>
-                      <TableHead className="w-24 text-right">Brier</TableHead>
+                      <TableHead className="w-28">
+                        <HeadHint label="Уверенность" hint={CAL_HINTS.bucket} />
+                      </TableHead>
+                      <TableHead className="w-16 text-right">
+                        <HeadHint label="n" hint={CAL_HINTS.n} />
+                      </TableHead>
+                      <TableHead className="w-24 text-right">
+                        <HeadHint label="hit rate" hint={CAL_HINTS.hitRate} />
+                      </TableHead>
+                      <TableHead className="w-24 text-right">
+                        <HeadHint label="Brier" hint={CAL_HINTS.brier} />
+                      </TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
