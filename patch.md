@@ -1136,6 +1136,40 @@ gronx поддерживает `#` (nth weekday), `L` (last), `W` (nearest). `go
 
 ---
 
+### Патч 34 — Cognitive-PM кокпит v3: закрытые решения, уроки, калибровка
+
+Фаза 3 плана `junior-pm-system-2026-07-02.md` §3/§8 (arc-репо AITO1) — «тренер проверяет решение за ≤5 минут».
+Read-only витрина; кнопки approve/retire уроков сознательно НЕ делаются (вопрос №3 владельцу про POST в BFF открыт).
+
+**Файлы:**
+- `packages/core/cognitive-pm/types.ts` — `Decision` += `decision_type`/`task_id`/`info_basis_refs`/`alternatives`;
+  новые `InfoBasisRef`, `DecisionAlternative`, `ResolvedDecision`, `Lesson`, `LessonEvent`, `CalibrationRow`
+  (зеркала Out-моделей `brain/api/pm.py`).
+- `packages/core/cognitive-pm/queries.ts` — `resolvedDecisionsOptions` (`/decisions/{pid}/resolved`),
+  `lessonsOptions`, `lessonEventsOptions` (лениво, на разворот карточки), `calibrationOptions`.
+- `packages/views/cognitive-pm/components/cognitive-pm-page.tsx`:
+  - секция «Закрытые решения» — карточки: outcome_kind-бейдж цветом (correct зелёный / partial жёлтый /
+    error красный / no_response серый), rationale → expected + confidence → outcome, Brier/severity/
+    process_verdict/resolved_by, даты decided→resolved;
+  - чипы `info_basis_refs` (source_type + укороченный ref, title=excerpt, клик копирует полный ref в буфер)
+    и список `alternatives` (option — why_rejected) — в открытых И закрытых решениях;
+  - «трейс прогона» по `task_id` — `TranscriptButton` с синтетическим `AgentTask` (приём autopilot-detail-page);
+  - секция «Уроки» — статус-бейдж (active/quarantined/retired), тип, trigger_condition, scope_in/out,
+    счётчики помог/вредил, укороченный external_id; разворачиваемый таймлайн `lesson_events`
+    (op → actor → embedded_into → detail кратко → дата) — витрина «какой урок, что изменил, куда встроено»;
+  - секция «Калибровка» — таблица bucket («80–90%») × n × hit_rate × Brier, группировка по decision_type
+    (NULL — «без типа» в конце). Все длинные тексты — break-words (wrap, не горизонтальный скролл).
+- `apps/web/app/bff/pm/[...path]/route.ts` — GET-allowlist += `lesson-events`, `calibration`
+  (`/decisions/{pid}/resolved` и `/overdue` проходят через уже разрешённый сегмент `decisions` — гейт по `path[0]`).
+
+**Проверки:** `pnpm --filter @multica/core --filter @multica/views --filter web typecheck` — чисто;
+eslint по изменённым каталогам — чисто (единственный error полного прогона — pre-existing в
+`monitoring/knowledges-tab.tsx`, не из этого патча). Сборка/деплой в этом патче не выполнялись.
+
+**Если конфликт:** аддитивно в `packages/{core,views}/cognitive-pm` + 2 строки allowlist; upstream не трогает.
+
+---
+
 ## Связанные правки **вне** этого репо (для полноты картины)
 
 Эти правки лежат в других репо/файлах, но без них наш форк работает не полностью. Они описаны отдельно — здесь только указатели:

@@ -1,13 +1,28 @@
 /* eslint-disable i18next/no-literal-string */
 "use client";
 
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { ChevronDown, ChevronRight, Copy } from "lucide-react";
+import { toast } from "sonner";
 import {
+  calibrationOptions,
   checkpointsOptions,
   commitmentsOptions,
   decisionsOptions,
+  lessonEventsOptions,
+  lessonsOptions,
   ownerTasksOptions,
+  resolvedDecisionsOptions,
 } from "@multica/core/cognitive-pm";
+import type {
+  CalibrationRow,
+  DecisionAlternative,
+  InfoBasisRef,
+  Lesson,
+  ResolvedDecision,
+} from "@multica/core/cognitive-pm";
+import type { AgentTask } from "@multica/core/types/agent";
 import { Badge } from "@multica/ui/components/ui/badge";
 import {
   Table,
@@ -17,18 +32,119 @@ import {
   TableHeader,
   TableRow,
 } from "@multica/ui/components/ui/table";
+import { cn } from "@multica/ui/lib/utils";
+import { TranscriptButton } from "../../common/task-transcript";
 
 // Cockpit for the cognitive PM (digital twin). Read-only window onto the twin's
 // mind held in Brain (aito1_pm_*): weekly checkpoints (to Tracker milestones),
-// owner-tasks + verdict, awaited commitments, open decision log. The twin has no
+// owner-tasks + verdict, awaited commitments, open + resolved decision log,
+// lessons with their learning delta-log, calibration curve. The twin has no
 // personal goal — the goal is closing Tracker milestones on time. Execution truth
 // (milestones, tasks) lives in Yandex Tracker, read-only. Single dogfood project.
+// Цель витрины — разбор решения тренером за ≤5 минут (план junior-pm §8).
 const PROJECT_ID = "6318c78d-4044-452c-99df-ca9db44d678c";
 
 function fmtDate(d: string | null): string {
   if (!d) return "—";
   const t = new Date(d);
   return Number.isNaN(t.getTime()) ? "—" : t.toLocaleDateString("ru-RU");
+}
+
+function fmtDateTime(d: string | null): string {
+  if (!d) return "—";
+  const t = new Date(d);
+  return Number.isNaN(t.getTime())
+    ? "—"
+    : t.toLocaleString("ru-RU", {
+        day: "2-digit",
+        month: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+      });
+}
+
+// Минимальный AgentTask для TranscriptButton (lazy-load трейса по task.id) —
+// тот же приём, что syntheticTask на autopilot-detail-page.
+function traceTask(taskId: string): AgentTask {
+  return {
+    id: taskId,
+    agent_id: "",
+    runtime_id: "",
+    issue_id: "",
+    status: "completed",
+    priority: 0,
+    dispatched_at: null,
+    started_at: null,
+    completed_at: null,
+    result: null,
+    error: null,
+    created_at: "",
+  };
+}
+
+// --- Чипы источников + отвергнутые варианты (общее для открытых и закрытых) ---
+
+function shortRef(ref: string): string {
+  return ref.length > 18 ? `${ref.slice(0, 8)}…${ref.slice(-4)}` : ref;
+}
+
+function RefChip({ refItem }: { refItem: InfoBasisRef }) {
+  const refStr = String(refItem.ref ?? "");
+  const copy = () => {
+    void navigator.clipboard.writeText(refStr).then(
+      () => toast.success("ref скопирован"),
+      () => toast.error("не удалось скопировать"),
+    );
+  };
+  return (
+    <button
+      type="button"
+      onClick={copy}
+      title={refItem.excerpt || refStr}
+      className="inline-flex max-w-full items-center gap-1 rounded border bg-muted/40 px-1.5 py-0.5 text-[11px] text-muted-foreground transition-colors hover:bg-muted"
+    >
+      <span className="shrink-0 font-medium">
+        {String(refItem.source_type ?? "?")}
+      </span>
+      <span className="truncate font-mono">{shortRef(refStr)}</span>
+      <Copy className="h-2.5 w-2.5 shrink-0 opacity-60" />
+    </button>
+  );
+}
+
+function DecisionEvidence({
+  refs,
+  alternatives,
+}: {
+  refs: InfoBasisRef[];
+  alternatives: DecisionAlternative[];
+}) {
+  const hasRefs = refs.length > 0;
+  const hasAlts = alternatives.length > 0;
+  if (!hasRefs && !hasAlts) return null;
+  return (
+    <div className="mt-1.5 space-y-1">
+      {hasRefs && (
+        <div className="flex flex-wrap gap-1">
+          {refs.map((r, i) => (
+            <RefChip key={`${String(r.ref)}-${i}`} refItem={r} />
+          ))}
+        </div>
+      )}
+      {hasAlts && (
+        <div className="space-y-0.5">
+          {alternatives.map((a, i) => (
+            <div key={i} className="break-words text-xs text-muted-foreground">
+              <span className="text-foreground/70">
+                отвергнуто: {String(a.option ?? "")}
+              </span>
+              {a.why_rejected ? <> — {String(a.why_rejected)}</> : null}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
 }
 
 // Цель двойника = закрыть вехи Трекера в срок (личной цели нет). Вехи живут в
@@ -161,6 +277,7 @@ function DecisionsSection() {
                 <TableHead>Обоснование</TableHead>
                 <TableHead>Ожидаемый результат</TableHead>
                 <TableHead className="w-16 text-right">Увер.</TableHead>
+                <TableHead className="w-10" />
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -174,6 +291,10 @@ function DecisionsSection() {
                   </TableCell>
                   <TableCell className="max-w-0 align-top whitespace-normal">
                     <div className="break-words text-sm">{d.rationale}</div>
+                    <DecisionEvidence
+                      refs={d.info_basis_refs ?? []}
+                      alternatives={d.alternatives ?? []}
+                    />
                   </TableCell>
                   <TableCell className="max-w-0 align-top whitespace-normal">
                     <div className="break-words text-sm">
@@ -186,10 +307,371 @@ function DecisionsSection() {
                   <TableCell className="align-top text-right tabular-nums text-sm">
                     {d.confidence ?? "—"}
                   </TableCell>
+                  <TableCell className="align-top">
+                    {d.task_id && (
+                      <TranscriptButton
+                        task={traceTask(d.task_id)}
+                        agentName="PM"
+                        title="Трейс прогона"
+                      />
+                    )}
+                  </TableCell>
                 </TableRow>
               ))}
             </TableBody>
           </Table>
+        </div>
+      )}
+    </section>
+  );
+}
+
+// --- Закрытые решения: исход + честные метрики (Brier / severity / process) ---
+
+const OUTCOME_LABEL: Record<string, string> = {
+  correct: "верно",
+  partial: "частично",
+  error: "ошибка",
+  no_response: "без ответа",
+  unknown: "неизвестно",
+};
+
+// correct зелёный / partial жёлтый / error красный / no_response серый.
+function OutcomeBadge({ kind }: { kind: ResolvedDecision["outcome_kind"] }) {
+  const label = kind ? (OUTCOME_LABEL[kind] ?? kind) : "—";
+  if (kind === "error") return <Badge variant="destructive">{label}</Badge>;
+  if (kind === "no_response") return <Badge variant="secondary">{label}</Badge>;
+  const cls =
+    kind === "correct"
+      ? "border-emerald-500/40 text-emerald-600 dark:text-emerald-400"
+      : kind === "partial"
+        ? "border-amber-500/40 text-amber-600 dark:text-amber-400"
+        : undefined;
+  return (
+    <Badge variant="outline" className={cn(cls)}>
+      {label}
+    </Badge>
+  );
+}
+
+function fmtNum(v: number | null, digits: number): string {
+  return v == null ? "—" : Number(v).toFixed(digits);
+}
+
+function ResolvedDecisionCard({ d }: { d: ResolvedDecision }) {
+  return (
+    <div className="rounded-lg border bg-background p-3">
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+        <OutcomeBadge kind={d.outcome_kind} />
+        <span className="text-xs text-muted-foreground">
+          {d.contour}
+          {d.decision_type ? ` · ${d.decision_type}` : ""}
+        </span>
+        <span className="text-xs text-muted-foreground">
+          {fmtDate(d.decided_at)} → {fmtDate(d.resolved_at)}
+        </span>
+        <span className="ml-auto flex items-center gap-2 text-xs text-muted-foreground">
+          <span className="tabular-nums">Brier {fmtNum(d.brier, 2)}</span>
+          <span className="tabular-nums">sev {d.severity ?? "—"}</span>
+          <span>процесс: {d.process_verdict ?? "—"}</span>
+          <span>закрыл: {d.resolved_by ?? "—"}</span>
+          {d.task_id && (
+            <TranscriptButton
+              task={traceTask(d.task_id)}
+              agentName="PM"
+              title="Трейс прогона"
+            />
+          )}
+        </span>
+      </div>
+      <div className="mt-2 break-words text-sm">{d.rationale}</div>
+      <div className="mt-1.5 break-words text-sm">
+        <span className="text-muted-foreground">Ожидал: </span>
+        {d.expected_artifact}
+        {d.confidence != null && (
+          <span className="text-muted-foreground"> · увер. {d.confidence}</span>
+        )}
+      </div>
+      <div className="break-words text-xs text-muted-foreground">
+        {d.expected_predicate}
+      </div>
+      <div className="mt-1.5 break-words text-sm">
+        <span className="text-muted-foreground">Исход: </span>
+        {d.outcome ?? "—"}
+      </div>
+      <DecisionEvidence
+        refs={d.info_basis_refs ?? []}
+        alternatives={d.alternatives ?? []}
+      />
+    </div>
+  );
+}
+
+function ResolvedDecisionsSection() {
+  const { data, isLoading, isError } = useQuery(
+    resolvedDecisionsOptions(PROJECT_ID),
+  );
+  return (
+    <section className="mb-8">
+      <h2 className="mb-3 text-base font-semibold">Закрытые решения</h2>
+      {isLoading ? (
+        <div className="text-sm text-muted-foreground">Загрузка…</div>
+      ) : isError ? (
+        <div className="text-sm text-destructive">Ошибка загрузки.</div>
+      ) : !data || data.length === 0 ? (
+        <div className="text-sm text-muted-foreground">
+          Закрытых решений нет.
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {data.map((d) => (
+            <ResolvedDecisionCard key={d.id} d={d} />
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+// --- Уроки: статус + формат урока + разворачиваемый дельта-лог обучения ---
+
+const LESSON_STATUS_LABEL: Record<string, string> = {
+  active: "active",
+  quarantined: "quarantined",
+  retired: "retired",
+};
+
+function LessonStatusBadge({ status }: { status: Lesson["status"] }) {
+  const label = LESSON_STATUS_LABEL[status] ?? status;
+  if (status === "active")
+    return (
+      <Badge
+        variant="outline"
+        className="border-emerald-500/40 text-emerald-600 dark:text-emerald-400"
+      >
+        {label}
+      </Badge>
+    );
+  if (status === "quarantined")
+    return (
+      <Badge
+        variant="outline"
+        className="border-amber-500/40 text-amber-600 dark:text-amber-400"
+      >
+        {label}
+      </Badge>
+    );
+  return <Badge variant="secondary">{label}</Badge>;
+}
+
+const LESSON_TYPE_LABEL: Record<string, string> = {
+  directive: "директива",
+  procedure_patch: "патч процедуры",
+  case_note: "кейс",
+  preference: "предпочтение",
+};
+
+// detail кратко: компактный JSON, обрезанный до вменяемой строки.
+function detailBrief(detail: Record<string, unknown>): string | null {
+  if (!detail || Object.keys(detail).length === 0) return null;
+  const s = JSON.stringify(detail);
+  return s.length > 160 ? `${s.slice(0, 160)}…` : s;
+}
+
+// Таймлайн «какой урок, что изменил, куда встроено»: op → actor →
+// embedded_into → detail → дата (журнал aito1_pm_lesson_events).
+function LessonTimeline({ lessonId }: { lessonId: string }) {
+  const { data, isLoading, isError } = useQuery(lessonEventsOptions(lessonId));
+  if (isLoading)
+    return <div className="text-xs text-muted-foreground">Загрузка…</div>;
+  if (isError)
+    return <div className="text-xs text-destructive">Ошибка загрузки.</div>;
+  if (!data || data.length === 0)
+    return <div className="text-xs text-muted-foreground">Событий нет.</div>;
+  return (
+    <div className="space-y-1">
+      {data.map((ev) => (
+        <div
+          key={ev.id}
+          className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-xs"
+        >
+          <span className="w-16 shrink-0 font-medium">{ev.op}</span>
+          <span className="w-10 shrink-0 text-muted-foreground">{ev.actor}</span>
+          {ev.embedded_into && (
+            <span className="break-all font-mono text-muted-foreground">
+              → {ev.embedded_into}
+            </span>
+          )}
+          {detailBrief(ev.detail) && (
+            <span className="min-w-0 break-all text-muted-foreground">
+              {detailBrief(ev.detail)}
+            </span>
+          )}
+          <span className="ml-auto whitespace-nowrap text-muted-foreground">
+            {fmtDateTime(ev.created_at)}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function LessonCard({ lesson }: { lesson: Lesson }) {
+  const [expanded, setExpanded] = useState(false);
+  const scopeIn = lesson.scope_in ?? [];
+  const scopeOut = lesson.scope_out ?? [];
+  return (
+    <div className="rounded-lg border bg-background p-3">
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+        <LessonStatusBadge status={lesson.status} />
+        <span className="text-xs text-muted-foreground">
+          {LESSON_TYPE_LABEL[lesson.type] ?? lesson.type}
+        </span>
+        {lesson.external_id && (
+          <span
+            title={lesson.external_id}
+            className="font-mono text-[11px] text-muted-foreground"
+          >
+            {shortRef(lesson.external_id)}
+          </span>
+        )}
+        <span
+          className="text-xs text-muted-foreground tabular-nums"
+          title="счётчики efficacy: помог / навредил"
+        >
+          помог {lesson.helpful_count} · вредил {lesson.harmful_count}
+        </span>
+        <button
+          type="button"
+          onClick={() => setExpanded((v) => !v)}
+          className="ml-auto flex items-center gap-1 rounded px-1.5 py-0.5 text-xs text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground"
+        >
+          {expanded ? (
+            <ChevronDown className="h-3.5 w-3.5" />
+          ) : (
+            <ChevronRight className="h-3.5 w-3.5" />
+          )}
+          таймлайн
+        </button>
+      </div>
+      <div className="mt-2 break-words text-sm">{lesson.lesson_text}</div>
+      {lesson.trigger_condition && (
+        <div className="mt-1 break-words text-xs text-muted-foreground">
+          Когда: {lesson.trigger_condition}
+        </div>
+      )}
+      {(scopeIn.length > 0 || scopeOut.length > 0) && (
+        <div className="mt-0.5 break-words text-xs text-muted-foreground">
+          Scope: в {scopeIn.length > 0 ? scopeIn.map(String).join(", ") : "—"}
+          {" · "}вне {scopeOut.length > 0 ? scopeOut.map(String).join(", ") : "—"}
+        </div>
+      )}
+      {expanded && (
+        <div className="mt-2 border-t pt-2">
+          <LessonTimeline lessonId={lesson.id} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function LessonsSection() {
+  const { data, isLoading, isError } = useQuery(lessonsOptions(PROJECT_ID));
+  return (
+    <section className="mb-8">
+      <h2 className="mb-3 text-base font-semibold">Уроки</h2>
+      {isLoading ? (
+        <div className="text-sm text-muted-foreground">Загрузка…</div>
+      ) : isError ? (
+        <div className="text-sm text-destructive">Ошибка загрузки.</div>
+      ) : !data || data.length === 0 ? (
+        <div className="text-sm text-muted-foreground">Уроков нет.</div>
+      ) : (
+        <div className="space-y-3">
+          {data.map((l) => (
+            <LessonCard key={l.id} lesson={l} />
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+// --- Калибровка: заявленная уверенность × фактическая частота × Brier ---
+
+// bucket = width_bucket(confidence, 0, 100, 10): бакет N = [(N-1)*10, N*10)%.
+function bucketLabel(bucket: number): string {
+  return `${(bucket - 1) * 10}–${bucket * 10}%`;
+}
+
+const NO_TYPE = "без типа";
+
+function CalibrationSection() {
+  const { data, isLoading, isError } = useQuery(calibrationOptions(PROJECT_ID));
+  const groups = new Map<string, CalibrationRow[]>();
+  for (const row of data ?? []) {
+    const key = row.decision_type ?? NO_TYPE;
+    const rows = groups.get(key);
+    if (rows) rows.push(row);
+    else groups.set(key, [row]);
+  }
+  // Именованные типы по алфавиту, «без типа» — в конце.
+  const keys = [...groups.keys()].sort((a, b) =>
+    a === NO_TYPE ? 1 : b === NO_TYPE ? -1 : a.localeCompare(b),
+  );
+  return (
+    <section className="mb-8">
+      <h2 className="mb-3 text-base font-semibold">Калибровка</h2>
+      {isLoading ? (
+        <div className="text-sm text-muted-foreground">Загрузка…</div>
+      ) : isError ? (
+        <div className="text-sm text-destructive">Ошибка загрузки.</div>
+      ) : keys.length === 0 ? (
+        <div className="text-sm text-muted-foreground">
+          Закрытых решений с уверенностью ещё нет.
+        </div>
+      ) : (
+        <div className="space-y-4">
+          {keys.map((key) => (
+            <div key={key}>
+              <div className="mb-1.5 text-xs font-medium text-muted-foreground">
+                {key}
+              </div>
+              <div className="overflow-hidden rounded-lg border bg-background">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead className="w-28">Уверенность</TableHead>
+                      <TableHead className="w-16 text-right">n</TableHead>
+                      <TableHead className="w-24 text-right">hit rate</TableHead>
+                      <TableHead className="w-24 text-right">Brier</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {(groups.get(key) ?? [])
+                      .slice()
+                      .sort((a, b) => a.bucket - b.bucket)
+                      .map((row) => (
+                        <TableRow key={`${key}-${row.bucket}`}>
+                          <TableCell className="text-sm tabular-nums">
+                            {bucketLabel(row.bucket)}
+                          </TableCell>
+                          <TableCell className="text-right text-sm tabular-nums">
+                            {row.n}
+                          </TableCell>
+                          <TableCell className="text-right text-sm tabular-nums">
+                            {fmtNum(row.hit_rate, 3)}
+                          </TableCell>
+                          <TableCell className="text-right text-sm tabular-nums">
+                            {fmtNum(row.brier, 4)}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                  </TableBody>
+                </Table>
+              </div>
+            </div>
+          ))}
         </div>
       )}
     </section>
@@ -294,6 +776,9 @@ export function CognitivePmPage() {
         <OwnerTasksSection />
         <CommitmentsSection />
         <DecisionsSection />
+        <ResolvedDecisionsSection />
+        <LessonsSection />
+        <CalibrationSection />
       </div>
     </div>
   );

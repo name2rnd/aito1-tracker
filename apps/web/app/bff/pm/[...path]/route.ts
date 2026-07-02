@@ -12,12 +12,15 @@ import { type NextRequest, NextResponse } from "next/server";
 const BRAIN_URL = process.env.AITO1_BRAIN_URL ?? "http://127.0.0.1:8082";
 
 // First path segment must be one of these Brain /api/pm/* read surfaces — never
-// an open relay.
+// an open relay. Note: /decisions/{pid}/resolved and /decisions/{pid}/overdue
+// pass through the "decisions" entry (only path[0] is gated).
 const ALLOWED = new Set([
   "checkpoints",
   "commitments",
   "decisions",
   "lessons",
+  "lesson-events",
+  "calibration",
   "error-metric",
   "owner-tasks",
 ]);
