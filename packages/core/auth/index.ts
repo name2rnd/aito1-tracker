@@ -1,6 +1,13 @@
 export { createAuthStore } from "./store";
 export type { AuthStoreOptions, AuthState } from "./store";
 export { sanitizeNextUrl } from "./utils";
+export {
+  readIdentities,
+  activeToken,
+  activeIdentity,
+  switchIdentity,
+} from "./identity-registry";
+export type { LocalIdentity } from "./identity-registry";
 
 import type { createAuthStore as CreateAuthStoreFn } from "./store";
 

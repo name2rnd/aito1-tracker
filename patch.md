@@ -1289,6 +1289,73 @@ wrap, не сжатие). Тот же паттерн превентивно за
 
 ---
 
+### Патч 39 — шире центральная колонка страницы задачи (тело + комментарии)
+
+Запрос владельца («сделать рабочую область в задаче ~на 20% шире»). Один файл:
+`packages/views/issues/components/issue-detail.tsx`. Центральная скролл-колонка (тело задачи,
+sticky-composer, лента комментариев) была ограничена `max-w-4xl` (56rem / 896px) и центрировалась
+`mx-auto`, оставляя широкие поля; правая панель Properties (`w-80`) не трогается.
+
+**Что изменено:**
+- `max-w-4xl` → `max-w-[74rem]` (56rem/896px → 74rem/1184px, +32%; подбирали итеративно по ощущению
+  владельца: сначала +20%, затем ещё +10%) в двух местах: реальный контент (строка ~728) и
+  skeleton-состояние загрузки (строка ~431) — оба меняются синхронно, чтобы не было прыжка ширины
+  при загрузке.
+- `rem` вместо px — уважает масштабирование шрифта пользователя; `w-full` остаётся потолком, поэтому
+  на узких экранах колонка не вылезает за пределы flex-1 области.
+
+**Если конфликт:** один файл в `packages/views/issues`; upstream может переверстать issue-detail —
+искать контейнер `mx-auto w-full max-w-* px-8 py-8` вокруг `TitleEditor`/`CommentInput`.
+
+---
+
+### Патч 40 — выпил страницы логина + переключатель identity (single-user форк)
+
+Запрос владельца: «уничтожить страницу логина как сущность, чтобы интерфейс
+открывался сразу без проверки»; при этом сохранить переключение между member-
+учётками (Human / Louis / Teamlead / Remote Human). Форк single-user, localhost.
+
+Ключевой инвариант backend'а (НЕ трогали): identity резолвится сервером из токена
+в заголовок `X-User-ID` (`server/internal/middleware/auth.go`) — либо JWT-cookie
+`multica_auth`, либо PAT `mul_…` в `Authorization: Bearer`. Клиент identity не
+задаёт. Решение: вместо логина фронт кладёт PAT нужного члена в `localStorage`
+(`multica_token`) → api-client уходит в Bearer-режим (`hasLegacyToken`) → сервер
+резолвит члена. Это ровно паттерн, которым уже ходят Brain и CLI. Backend без правок.
+
+**Что изменено (всё — фронт):**
+- NEW `packages/core/auth/identity-registry.ts` (+ `.test.ts`, 6 кейсов) — реестр
+  учёток в localStorage (`multica_identities`), `readIdentities/activeToken/
+  activeIdentity/switchIdentity` (пишет токен + reload). Реэкспорт в `auth/index.ts`.
+- `packages/views/layout/app-sidebar.tsx` — группа «Act as» в user-dropdown: 4 учётки
+  с ролью, галка на активной, клик → `switchIdentity`.
+- `apps/web/proxy.ts` — убрана вся ветка редиректа на `/login`; корень и легаси-пути
+  всегда ведут в `/{slug}/issues`, slug = `NEXT_PUBLIC_DEFAULT_WORKSPACE_SLUG` (деф.
+  `aito1`). Зависимость от cookie `multica_logged_in` убрана (в token-режиме её нет).
+- `apps/web/app/(auth)/login/page.tsx` — email-OTP + Google OAuth + CLI/desktop
+  handoff заменены на dev identity-picker (кнопки из реестра + ручная вставка PAT).
+  Показывается ТОЛЬКО при пустом localStorage (fresh/cleared) — graceful fallback,
+  не стена. CLI browser-login выпилен (CLI ходит по своему PAT из конфига).
+- Guard'ы `[workspaceSlug]/layout.tsx` и `use-dashboard-guard.ts` НЕ трогали: при
+  наличии токена `user` есть → молчат; без токена ведут на picker (не стену).
+
+**Seed (вне репо, разово):** реестр 4 PAT кладётся в localStorage браузера. Токены
+берутся из `~/.multica/profiles/aito1/config.json` (Human), `~/.multica/config.json`
+(Louis), `~/.aito1/config.env` (Teamlead), `~/.aito1/remote_human.env` (Remote Human).
+Сниппет — `~/.aito1/seed-identities.js`. Секреты НЕ в git и НЕ в бандле (те же PAT уже
+лежат plaintext в этих файлах — модель угроз single-user не меняется).
+
+**Проверки:** `vitest` identity-registry 6/6; typecheck core+views+web чисто; живьём
+через Kimi — интерфейс открывается сразу на `/aito1/issues` под Human без логина,
+switcher показывает 4 учётки, переключение Human↔Louis подтверждено на всех уровнях
+(UI, localStorage, backend `GET /api/me` → louis@aito1.local).
+
+**Если конфликт при merge с upstream:** upstream развивает cookie-login (auth.go,
+login/page.tsx, proxy.ts) — наши правки его снимают. При апстриме заново снять три
+редиректа (`proxy.ts`, оба guard'а ведут на picker) и заменить login/page на picker;
+identity-registry и switcher — аддитивны, конфликтов не дают.
+
+---
+
 ## Связанные правки **вне** этого репо (для полноты картины)
 
 Эти правки лежат в других репо/файлах, но без них наш форк работает не полностью. Они описаны отдельно — здесь только указатели:

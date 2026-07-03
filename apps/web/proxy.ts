@@ -17,6 +17,15 @@ const LEGACY_ROUTE_SEGMENTS = new Set([
   "settings",
 ]);
 
+// AITO1-patch (Патч 40): login-less fork. Identity comes from a PAT held in
+// localStorage (see identity-registry), not a login flow — so there is no
+// `multica_logged_in` session cookie to gate on. The proxy therefore never
+// bounces to /login; it just funnels every workspace-shaped or root URL into a
+// concrete workspace so the app shell always renders. Default slug is
+// overridable via env for non-`aito1` installs.
+const DEFAULT_WORKSPACE_SLUG =
+  process.env.NEXT_PUBLIC_DEFAULT_WORKSPACE_SLUG || "aito1";
+
 // Resolve the active locale per request. Cookie wins over Accept-Language;
 // matchLocale() falls back to DEFAULT_LOCALE when neither yields a match.
 function resolveLocale(req: NextRequest): string {
@@ -47,43 +56,30 @@ function nextWithLocale(req: NextRequest): NextResponse {
 // edge.
 export function proxy(req: NextRequest) {
   const { pathname } = req.nextUrl;
-  const hasSession = req.cookies.has("multica_logged_in");
-  const lastSlug = req.cookies.get("last_workspace_slug")?.value;
+  // Prefer the last workspace the operator viewed (layout writes this cookie);
+  // fall back to the default slug. No session check — there is no login wall.
+  const slug = req.cookies.get("last_workspace_slug")?.value || DEFAULT_WORKSPACE_SLUG;
 
   // --- Legacy URL redirect: /issues/... → /{slug}/issues/... ---
   // Old bookmarks and clients that hit us before the slug migration would
-  // otherwise 404 since the route moved under [workspaceSlug].
+  // otherwise 404 since the route moved under [workspaceSlug]. Preserve the
+  // deep-link path + query.
   const firstSegment = pathname.split("/")[1] ?? "";
   if (LEGACY_ROUTE_SEGMENTS.has(firstSegment)) {
     const url = req.nextUrl.clone();
-
-    if (!hasSession) {
-      url.pathname = "/login";
-      return NextResponse.redirect(url);
-    }
-
-    if (lastSlug) {
-      // Preserve deep-link path + query: /issues/abc → /{lastSlug}/issues/abc
-      url.pathname = `/${lastSlug}${pathname}`;
-      return NextResponse.redirect(url);
-    }
-
-    // Logged-in but no cookie yet (first login since slug migration, or
-    // cookie cleared). Bounce to root; the root-path logic below picks a
-    // workspace and writes the cookie, then future hits short-circuit here.
-    url.pathname = "/";
+    url.pathname = `/${slug}${pathname}`;
     return NextResponse.redirect(url);
   }
 
-  // --- Root path: redirect logged-in users to their last workspace ---
-  if (pathname === "/" && hasSession && lastSlug) {
+  // --- Root path: straight into the workspace board (no login gate) ---
+  if (pathname === "/") {
     const url = req.nextUrl.clone();
-    url.pathname = `/${lastSlug}/issues`;
+    url.pathname = `/${slug}/issues`;
     return NextResponse.redirect(url);
   }
 
   // --- Default: forward locale header to RSC, no redirect/rewrite ---
-  // Covers logged-out root path, /login, /:slug/*, and everything else.
+  // Covers /:slug/*, /login (the in-app identity picker), and everything else.
   return nextWithLocale(req);
 }
 

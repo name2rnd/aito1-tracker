@@ -63,7 +63,13 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@multica/ui/components/ui/dropdown-menu";
-import { useAuthStore } from "@multica/core/auth";
+import {
+  useAuthStore,
+  readIdentities,
+  activeToken,
+  switchIdentity,
+  type LocalIdentity,
+} from "@multica/core/auth";
 import { useCurrentWorkspace, useWorkspacePaths, paths } from "@multica/core/paths";
 import { workspaceListOptions, myInvitationListOptions, workspaceKeys } from "@multica/core/workspace/queries";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -344,6 +350,16 @@ export function AppSidebar({ topSlot, searchSlot, headerClassName, headerStyle }
   const user = useAuthStore((s) => s.user);
   const userId = useAuthStore((s) => s.user?.id);
   const logout = useLogout();
+
+  // AITO1-patch (Патч 40): login-less fork — pick which member to act as from
+  // the localStorage identity registry. Read after mount to avoid SSR/hydration
+  // mismatch (localStorage is client-only).
+  const [identities, setIdentities] = useState<LocalIdentity[]>([]);
+  const [actingToken, setActingToken] = useState<string | null>(null);
+  useEffect(() => {
+    setIdentities(readIdentities());
+    setActingToken(activeToken());
+  }, []);
   const workspace = useCurrentWorkspace();
   const p = useWorkspacePaths();
   const { data: workspaces = EMPTY_WORKSPACES } = useQuery(workspaceListOptions());
@@ -568,6 +584,38 @@ export function AppSidebar({ topSlot, searchSlot, headerClassName, headerStyle }
                               {t(($) => $.sidebar.invitation_decline)}
                             </button>
                           </div>
+                        ))}
+                      </DropdownMenuGroup>
+                    </>
+                  )}
+                  {/* AITO1-patch (Патч 40): act-as identity switcher. Label is
+                      a plain string (dev-only control on a single-user fork; the
+                      app runs in the English locale). */}
+                  {identities.length > 0 && (
+                    <>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuGroup>
+                        <DropdownMenuLabel className="text-xs text-muted-foreground">
+                          Act as
+                        </DropdownMenuLabel>
+                        {identities.map((ident) => (
+                          <DropdownMenuItem
+                            key={ident.id}
+                            onClick={() => switchIdentity(ident.token)}
+                          >
+                            <ActorAvatar
+                              name={ident.name}
+                              initials={ident.name.charAt(0).toUpperCase()}
+                              size={20}
+                            />
+                            <span className="flex-1 truncate">{ident.name}</span>
+                            <span className="text-[10px] text-muted-foreground tabular-nums">
+                              {ident.role}
+                            </span>
+                            {ident.token === actingToken && (
+                              <Check className="h-3.5 w-3.5 text-primary" />
+                            )}
+                          </DropdownMenuItem>
                         ))}
                       </DropdownMenuGroup>
                     </>
