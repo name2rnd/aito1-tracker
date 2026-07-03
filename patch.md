@@ -1356,6 +1356,37 @@ identity-registry и switcher — аддитивны, конфликтов не 
 
 ---
 
+### Патч 41 — live-индикатор активной работы агента на карточке доски
+
+Запрос владельца: при параллельной работе нескольких агентов на доске не видно, над
+какой задачей агент работает ПРЯМО СЕЙЧАС. Один файл:
+`packages/views/issues/components/board-card.tsx`.
+
+**Что изменено:**
+- В шапке карточки (линия 1) порядок: ключ → счётчик подзадач (`ProgressRing`) →
+  **spinner** → иконка assignee. Assignee обёрнут в правый flex-кластер, spinner
+  (`Loader2 animate-spin text-info`, тот же визуал, что у in-issue баннера
+  `AgentLiveCard`) — слева от иконки агента.
+- Сигнал «агент работает» — из общего workspace-снапшота тасков
+  (`agentTaskSnapshotOptions(wsId)`, один fetch на всю доску, React Query дедуплицирует
+  по queryKey). `hasActiveAgent` = в снапшоте есть таск с `issue_id == issue.id` и
+  `status ∈ {queued, dispatched, running}` (тот же active-набор, что у `AgentLiveCard`).
+- **Live** без перезагрузки: снапшот инвалидируется по WS-событиям тасков → spinner
+  появляется/исчезает сам (self-heal при `task:completed/failed/cancelled`).
+- **Status-agnostic**: показывается на карточке в любой колонке, где агент реально
+  активен (in_progress ≠ «сейчас работает»; напр. агент бежит на in_review-задаче →
+  spinner там).
+
+**Проверки:** `pnpm --filter @multica/views typecheck` чисто; живьём через Kimi — при
+активном прогоне на AIT-870 spinner появился на её карточке (live, без reload), при
+завершении сам исчез; на карточках без активного таска spinner'а нет.
+
+**Если конфликт:** один файл в `packages/views/issues`; upstream может переверстать
+шапку board-card — искать flex-строку с `issue.identifier` + `ActorAvatar`, вставить
+spinner в правый кластер перед assignee.
+
+---
+
 ## Связанные правки **вне** этого репо (для полноты картины)
 
 Эти правки лежат в других репо/файлах, но без них наш форк работает не полностью. Они описаны отдельно — здесь только указатели:

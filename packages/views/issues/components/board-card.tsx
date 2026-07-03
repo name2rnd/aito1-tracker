@@ -1,8 +1,8 @@
 "use client";
 
-import { useCallback, memo } from "react";
+import { useCallback, useMemo, memo } from "react";
 import { AppLink } from "../../navigation";
-import { CornerDownRight } from "lucide-react";
+import { CornerDownRight, Loader2 } from "lucide-react";
 import { useSortable, defaultAnimateLayoutChanges } from "@dnd-kit/sortable";
 import type { AnimateLayoutChanges } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
@@ -14,6 +14,7 @@ import { useUpdateIssue } from "@multica/core/issues/mutations";
 import { useWorkspacePaths } from "@multica/core/paths";
 import { useWorkspaceId } from "@multica/core/hooks";
 import { projectListOptions } from "@multica/core/projects/queries";
+import { agentTaskSnapshotOptions } from "@multica/core/agents/queries";
 import { ProjectIcon } from "../../projects/components/project-icon";
 import { AssigneePicker } from "./pickers";
 import { useViewStore } from "@multica/core/issues/stores/view-store-context";
@@ -22,6 +23,10 @@ import type { ChildProgress } from "./list-row";
 import { IssueActionsContextMenu } from "../actions";
 import { LabelChip } from "../../labels/label-chip";
 import { useT } from "../../i18n";
+
+// AITO1-patch (Патч 41): статусы таска, означающие «агент работает над задачей
+// прямо сейчас» — тот же active-набор, что у in-issue баннера AgentLiveCard.
+const ACTIVE_TASK_STATUSES = new Set(["queued", "dispatched", "running"]);
 
 /** Stops event from bubbling to Link/drag handlers */
 function PickerWrapper({ children }: { children: React.ReactNode }) {
@@ -54,6 +59,18 @@ export const BoardCardContent = memo(function BoardCardContent({
   });
   const project = issue.project_id ? projects.find((p) => p.id === issue.project_id) : undefined;
   const labels = issue.labels ?? [];
+
+  // AITO1-patch (Патч 41): есть ли у агента активный таск на ЭТОЙ задаче прямо
+  // сейчас. Из общего workspace-снапшота тасков (WS-инвалидируется → live), один
+  // fetch на всю доску — React Query дедуплицирует по одинаковому queryKey.
+  const { data: taskSnapshot } = useQuery(agentTaskSnapshotOptions(wsId));
+  const hasActiveAgent = useMemo(
+    () =>
+      (taskSnapshot ?? []).some(
+        (task) => task.issue_id === issue.id && ACTIVE_TASK_STATUSES.has(task.status),
+      ),
+    [taskSnapshot, issue.id],
+  );
 
   const updateIssueMutation = useUpdateIssue();
   const handleUpdate = useCallback(
@@ -92,31 +109,42 @@ export const BoardCardContent = memo(function BoardCardContent({
             </span>
           )}
         </div>
-        {showAssignee &&
-          (editable ? (
-            <PickerWrapper>
-              <AssigneePicker
-                assigneeType={issue.assignee_type}
-                assigneeId={issue.assignee_id}
-                onUpdate={handleUpdate}
-                trigger={
-                  <ActorAvatar
-                    actorType={issue.assignee_type!}
-                    actorId={issue.assignee_id!}
-                    size={28}
-                    enableHoverCard
-                  />
-                }
-              />
-            </PickerWrapper>
-          ) : (
-            <ActorAvatar
-              actorType={issue.assignee_type!}
-              actorId={issue.assignee_id!}
-              size={28}
-              enableHoverCard
+        <div className="flex shrink-0 items-center gap-1.5">
+          {/* AITO1-patch (Патч 41): live-индикатор активной работы агента —
+              слева от иконки assignee. Тот же spinner (text-info), что у in-issue
+              баннера «агент работает». */}
+          {hasActiveAgent && (
+            <Loader2
+              className="h-3.5 w-3.5 shrink-0 animate-spin text-info"
+              aria-label="Агент работает над задачей"
             />
-          ))}
+          )}
+          {showAssignee &&
+            (editable ? (
+              <PickerWrapper>
+                <AssigneePicker
+                  assigneeType={issue.assignee_type}
+                  assigneeId={issue.assignee_id}
+                  onUpdate={handleUpdate}
+                  trigger={
+                    <ActorAvatar
+                      actorType={issue.assignee_type!}
+                      actorId={issue.assignee_id!}
+                      size={28}
+                      enableHoverCard
+                    />
+                  }
+                />
+              </PickerWrapper>
+            ) : (
+              <ActorAvatar
+                actorType={issue.assignee_type!}
+                actorId={issue.assignee_id!}
+                size={28}
+                enableHoverCard
+              />
+            ))}
+        </div>
       </div>
 
       {/* Линия 2: текст задачи */}
