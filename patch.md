@@ -1387,6 +1387,54 @@ spinner в правый кластер перед assignee.
 
 ---
 
+### Патч 42 — выбор проекта у create_issue-автопилотов
+
+Запрос владельца: у автопилота в режиме Create Issue не было выбора проекта —
+`dispatchCreateIssue` хардкодил `ProjectID: NULL`, и каждый create_issue-автопилот
+(Prospector/Wanderer/Worker и будущий Curator) ронял issue в no-project scope, где
+`status='todo'` занимает no-project dispatch-окно AITO1 (`_BUSY_STATES`) и блокирует
+intake. «Если я выбираю Create Issue — нужно выбирать проект» → чиним в форке. Это
+ВОЗВРАТ колонки: `autopilot.project_id` был в 042, снят 058 («не было в UI»);
+возвращаем вместе с UI-селектором.
+
+**Что изменено (вертикальный срез):**
+- Миграция `server/migrations/072_autopilot_project_id.{up,down}.sql` — `ALTER TABLE
+  autopilot ADD COLUMN IF NOT EXISTS project_id UUID REFERENCES project(id) ON DELETE
+  SET NULL` (зеркало 058.down). Опциональна, NULL для существующих и для run_only.
+- sqlc: `server/pkg/db/queries/autopilot.sql` — `project_id` в `CreateAutopilot`
+  (`sqlc.narg('project_id')`) и `UpdateAutopilot` (бэре `project_id =
+  sqlc.narg('project_id')`, как `issue_title_template` — допускает очистку в NULL).
+  `Get/List/SystemPause` — `SELECT */RETURNING *`, подхватилось само. Регенерация:
+  `cd server && sqlc generate` (v1.31.1) → `db.Autopilot.ProjectID` + Create/Update
+  Params + все Scan.
+- Backend: `server/internal/service/autopilot.go:129` — `ProjectID: ap.ProjectID`
+  вместо `pgtype.UUID{}` (issue штампуется проектом автопилота). Handler
+  `server/internal/handler/autopilot.go` — `project_id` в `AutopilotResponse` +
+  `autopilotToResponse` (`uuidToPtr`), в `Create/UpdateAutopilotRequest`; в Create —
+  парс + валидация `GetProjectInWorkspace` (зеркало assignee-проверки); в Update —
+  префилл `prev.ProjectID` + rawFields-блок (значение → validate+set; null/"" →
+  очистка). Проект опционален, воркспейс-скоуп enforced.
+- UI: `packages/core/types/autopilot.ts` — `project_id` в `Autopilot`/`Create`/`Update`.
+  `packages/views/autopilots/components/autopilot-dialog.tsx` — state `projectId`,
+  секция `ProjectSection` (переиспользует общий `ProjectPicker` + `ProjectIcon`),
+  показывается ТОЛЬКО при `execution_mode=create_issue` (run_only issue не создаёт);
+  payload шлёт `project_id` при create_issue, иначе `null` (сброс). `autopilot-detail-page.tsx`
+  — `project_id` в initial для edit-режима. i18n `en/zh-Hans/autopilots.json` —
+  `section_project`/`no_project`. Мутации/API-клиент не трогались (payload идёт насквозь).
+
+**Проверки:** `go build ./...` чисто; `sqlc generate` без диффа-ошибок;
+`pnpm --filter @multica/{views,core} typecheck` = 0; миграция применена на prod-БД
+(5433), `\d autopilot` показывает `project_id`; live через Kimi — у create_issue-автопилота
+выбран проект `tests`, ручной триггер → созданный issue лёг в `tests` (не в no-project).
+
+**Если конфликт:** upstream может переверстать autopilot-форму — секция вставляется в
+правую колонку (`<aside>`) после `OutputModeSection`, гейт `executionMode ===
+"create_issue"`. Backend — единственная точка хардкода была `autopilot.go:129`
+`ProjectID`. Миграция может столкнуться по номеру (072) — перенумеровать на следующий
+свободный. sqlc-код (`pkg/db/generated/*`) — регенерируемый, руками не мержить.
+
+---
+
 ## Связанные правки **вне** этого репо (для полноты картины)
 
 Эти правки лежат в других репо/файлах, но без них наш форк работает не полностью. Они описаны отдельно — здесь только указатели:

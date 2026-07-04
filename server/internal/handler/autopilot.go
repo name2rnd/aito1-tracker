@@ -32,6 +32,7 @@ type AutopilotResponse struct {
 	IssueTitleTemplate *string `json:"issue_title_template"`
 	CreatedByType      string  `json:"created_by_type"`
 	CreatedByID        string  `json:"created_by_id"`
+	ProjectID          *string `json:"project_id"`
 	LastRunAt          *string `json:"last_run_at"`
 	CreatedAt          string  `json:"created_at"`
 	UpdatedAt          string  `json:"updated_at"`
@@ -82,6 +83,7 @@ func autopilotToResponse(a db.Autopilot) AutopilotResponse {
 		IssueTitleTemplate: textToPtr(a.IssueTitleTemplate),
 		CreatedByType:      a.CreatedByType,
 		CreatedByID:        uuidToString(a.CreatedByID),
+		ProjectID:          uuidToPtr(a.ProjectID),
 		LastRunAt:          timestampToPtr(a.LastRunAt),
 		CreatedAt:          timestampToString(a.CreatedAt),
 		UpdatedAt:          timestampToString(a.UpdatedAt),
@@ -139,6 +141,7 @@ type CreateAutopilotRequest struct {
 	AssigneeID         string  `json:"assignee_id"`
 	ExecutionMode      string  `json:"execution_mode"`
 	IssueTitleTemplate *string `json:"issue_title_template"`
+	ProjectID          *string `json:"project_id"`
 }
 
 type UpdateAutopilotRequest struct {
@@ -148,6 +151,7 @@ type UpdateAutopilotRequest struct {
 	Status             *string `json:"status"`
 	ExecutionMode      *string `json:"execution_mode"`
 	IssueTitleTemplate *string `json:"issue_title_template"`
+	ProjectID          *string `json:"project_id"`
 }
 
 type CreateAutopilotTriggerRequest struct {
@@ -286,6 +290,25 @@ func (h *Handler) CreateAutopilot(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Optional project: create_issue autopilots stamp the issue they create with
+	// it (dispatchCreateIssue). Validate it belongs to the workspace, mirror the
+	// assignee check. Empty/absent → NULL (project optional; run_only ignores it).
+	var projectID pgtype.UUID
+	if req.ProjectID != nil && *req.ProjectID != "" {
+		pid, ok := parseUUIDOrBadRequest(w, *req.ProjectID, "project_id")
+		if !ok {
+			return
+		}
+		if _, err := h.Queries.GetProjectInWorkspace(r.Context(), db.GetProjectInWorkspaceParams{
+			ID:          pid,
+			WorkspaceID: wsUUID,
+		}); err != nil {
+			writeError(w, http.StatusBadRequest, "project must be a valid project in this workspace")
+			return
+		}
+		projectID = pid
+	}
+
 	autopilot, err := h.Queries.CreateAutopilot(r.Context(), db.CreateAutopilotParams{
 		WorkspaceID:        wsUUID,
 		Title:              req.Title,
@@ -296,6 +319,7 @@ func (h *Handler) CreateAutopilot(w http.ResponseWriter, r *http.Request) {
 		CreatedByID:        parseUUID(userID),
 		Description:        ptrToText(req.Description),
 		IssueTitleTemplate: ptrToText(req.IssueTitleTemplate),
+		ProjectID:          projectID,
 	})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to create autopilot")
@@ -339,6 +363,7 @@ func (h *Handler) UpdateAutopilot(w http.ResponseWriter, r *http.Request) {
 		Description:        prev.Description,
 		AssigneeID:         prev.AssigneeID,
 		IssueTitleTemplate: prev.IssueTitleTemplate,
+		ProjectID:          prev.ProjectID,
 	}
 	if req.Title != nil {
 		params.Title = pgtype.Text{String: *req.Title, Valid: true}
@@ -369,6 +394,27 @@ func (h *Handler) UpdateAutopilot(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			params.AssigneeID = assigneeUUID
+		}
+	}
+	// project_id present in the body: a value → validate + set; null/"" → clear
+	// (switch to run_only / «no project»). Query sets it bare (no COALESCE), so
+	// an absent field keeps prev.ProjectID (prefilled above).
+	if _, ok := rawFields["project_id"]; ok {
+		if req.ProjectID != nil && *req.ProjectID != "" {
+			pid, ok := parseUUIDOrBadRequest(w, *req.ProjectID, "project_id")
+			if !ok {
+				return
+			}
+			if _, err := h.Queries.GetProjectInWorkspace(r.Context(), db.GetProjectInWorkspaceParams{
+				ID:          pid,
+				WorkspaceID: prev.WorkspaceID,
+			}); err != nil {
+				writeError(w, http.StatusBadRequest, "project must be a valid project in this workspace")
+				return
+			}
+			params.ProjectID = pid
+		} else {
+			params.ProjectID = pgtype.UUID{}
 		}
 	}
 

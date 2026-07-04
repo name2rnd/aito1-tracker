@@ -147,6 +147,8 @@
     "section_agent": "Agent",
     "select_agent": "Select agent",
     "section_output_mode": "Output mode",
+    "section_project": "Project",
+    "no_project": "No project",
     "section_schedule": "Schedule",
     "schedule_disabled_reason": "This autopilot has multiple schedules — edit them in the detail page.",
     "next_run_label": "Next run:",

@@ -9,6 +9,7 @@ import {
   ChevronRight,
   Clock,
   FilePlus2,
+  FolderKanban,
   Maximize2,
   Minimize2,
   Play,
@@ -36,6 +37,7 @@ import { TimezonePicker } from "./pickers/timezone-picker";
 import { useCurrentWorkspace } from "@multica/core/paths";
 import { useWorkspaceId } from "@multica/core/hooks";
 import { agentListOptions } from "@multica/core/workspace/queries";
+import { projectListOptions } from "@multica/core/projects/queries";
 import {
   useCreateAutopilot,
   useCreateAutopilotTrigger,
@@ -49,6 +51,8 @@ import type {
 import { TitleEditor, ContentEditor } from "../../editor";
 import { ActorAvatar } from "../../common/actor-avatar";
 import { AgentPicker } from "./pickers/agent-picker";
+import { ProjectPicker } from "../../projects/components/project-picker";
+import { ProjectIcon } from "../../projects/components/project-icon";
 import {
   getDefaultTriggerConfig,
   getLocalTimezone,
@@ -68,6 +72,7 @@ export interface AutopilotInitial {
   description: string;
   assignee_id: string;
   execution_mode: AutopilotExecutionMode;
+  project_id: string | null;
 }
 
 export type AutopilotDialogProps =
@@ -250,6 +255,9 @@ export function AutopilotDialog(props: AutopilotDialogProps) {
   const [executionMode, setExecutionMode] = useState<AutopilotExecutionMode>(
     initial.execution_mode ?? "create_issue",
   );
+  const [projectId, setProjectId] = useState<string | null>(
+    initial.project_id ?? null,
+  );
 
   const initialCfg: TriggerConfig = (() => {
     if (isCreate) {
@@ -301,6 +309,7 @@ export function AutopilotDialog(props: AutopilotDialogProps) {
           description: description.trim() || undefined,
           assignee_id: assigneeId,
           execution_mode: executionMode,
+          project_id: executionMode === "create_issue" ? projectId : null,
         });
         let scheduleOk = true;
         try {
@@ -323,6 +332,7 @@ export function AutopilotDialog(props: AutopilotDialogProps) {
           description: description.trim() || null,
           assignee_id: assigneeId,
           execution_mode: executionMode,
+          project_id: executionMode === "create_issue" ? projectId : null,
         });
         let scheduleOk = true;
         if (scheduleDirty && !schedulePillDisabled) {
@@ -486,6 +496,10 @@ export function AutopilotDialog(props: AutopilotDialogProps) {
 
             <OutputModeSection mode={executionMode} onChange={setExecutionMode} />
 
+            {executionMode === "create_issue" && (
+              <ProjectSection projectId={projectId} onChange={setProjectId} />
+            )}
+
             <ScheduleSection
               config={triggerConfig}
               onChange={setTriggerConfig}
@@ -585,6 +599,53 @@ function AgentSection({
                   {selectedDescription}
                 </span>
               )}
+            </span>
+            <ChevronDown className="size-3.5 text-muted-foreground shrink-0" />
+          </button>
+        }
+      />
+    </div>
+  );
+}
+
+// Optional project for create_issue autopilots: the issue the autopilot mints
+// is stamped with it (backend dispatchCreateIssue). Reuses the shared
+// ProjectPicker; shown only in create_issue mode (run_only creates no issue).
+function ProjectSection({
+  projectId,
+  onChange,
+}: {
+  projectId: string | null;
+  onChange: (id: string | null) => void;
+}) {
+  const { t } = useT("autopilots");
+  const wsId = useWorkspaceId();
+  const { data: projects = [] } = useQuery(projectListOptions(wsId));
+  const current = projects.find((p) => p.id === projectId) ?? null;
+  return (
+    <div>
+      <SectionLabel>{t(($) => $.dialog.section_project)}</SectionLabel>
+      <ProjectPicker
+        projectId={projectId}
+        onUpdate={(u) => onChange(u.project_id ?? null)}
+        align="start"
+        triggerRender={
+          <button
+            type="button"
+            className={cn(
+              "w-full flex items-center gap-2.5 rounded-md border bg-background px-3 py-2 text-left",
+              "hover:bg-accent/40 transition-colors cursor-pointer",
+            )}
+          >
+            {current ? (
+              <ProjectIcon project={current} size="sm" className="shrink-0" />
+            ) : (
+              <span className="inline-flex size-7 items-center justify-center rounded-full bg-muted text-muted-foreground">
+                <FolderKanban className="size-3.5" />
+              </span>
+            )}
+            <span className="flex-1 min-w-0 block text-sm font-medium truncate">
+              {current ? current.title : t(($) => $.dialog.no_project)}
             </span>
             <ChevronDown className="size-3.5 text-muted-foreground shrink-0" />
           </button>

@@ -538,6 +538,7 @@ export function AutopilotDetailPage({ autopilotId }: { autopilotId: string }) {
             description: autopilot.description ?? "",
             assignee_id: autopilot.assignee_id,
             execution_mode: autopilot.execution_mode as AutopilotExecutionMode,
+            project_id: autopilot.project_id,
           }}
           triggers={triggers}
         />

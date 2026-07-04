@@ -19,6 +19,7 @@ export interface Autopilot {
   issue_title_template: string | null;
   created_by_type: string;
   created_by_id: string;
+  project_id: string | null;
   last_run_at: string | null;
   created_at: string;
   updated_at: string;
@@ -61,6 +62,7 @@ export interface CreateAutopilotRequest {
   assignee_id: string;
   execution_mode: AutopilotExecutionMode;
   issue_title_template?: string;
+  project_id?: string | null;
 }
 
 export interface UpdateAutopilotRequest {
@@ -70,6 +72,7 @@ export interface UpdateAutopilotRequest {
   status?: AutopilotStatus;
   execution_mode?: AutopilotExecutionMode;
   issue_title_template?: string | null;
+  project_id?: string | null;
 }
 
 export interface CreateAutopilotTriggerRequest {

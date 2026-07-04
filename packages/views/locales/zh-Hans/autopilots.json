@@ -147,6 +147,8 @@
     "section_agent": "智能体",
     "select_agent": "选择智能体",
     "section_output_mode": "输出模式",
+    "section_project": "项目",
+    "no_project": "无项目",
     "section_schedule": "时间表",
     "schedule_disabled_reason": "该自动化有多个时间表——请到详情页编辑。",
     "next_run_label": "下次运行：",
