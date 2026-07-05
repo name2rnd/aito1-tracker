@@ -52,12 +52,17 @@ export interface FactRow {
   /** reference_count + pull_count — how often the fact was used. */
   uses: number;
   active: boolean;
+  /** on invalidated rows — the Curator's merge/route trail. */
+  invalidation_reason: string | null;
+  invalidated_by_fact_id: string | null;
   last_used: string | null;
   created_at: string;
 }
 
 export interface FactsResponse {
   total: number;
+  /** active human-sourced facts — the "golden inbox" badge. */
+  golden_inbox: number;
   items: FactRow[];
 }
 
@@ -198,6 +203,10 @@ export interface KnowledgeRow {
   source_count: number;
   version: number;
   status: string;
+  /** exposure: times served into recall. */
+  served_count: number;
+  /** use: times cited (ranking reads this, not served). */
+  cited_count: number;
   is_revision: boolean;
   created_at: string;
   updated_at: string;
@@ -225,4 +234,98 @@ export interface DiaryRow {
 export interface DiaryResponse {
   total: number;
   items: DiaryRow[];
+}
+
+// Episodes — closed tasks with their lessons + E-credit (Phase 8). Trace
+// summaries are bullet arrays; `*_lessons` is their length (role-summary
+// presence), `lesson_preview` the first executor bullet.
+export interface EpisodeRow {
+  id: string;
+  outcome: string | null;
+  task_text: string | null;
+  class_id: string | null;
+  class_name: string | null;
+  /** multica ticket number (AIT-N); null if no issue row. */
+  issue_number: number | null;
+  /** times the episode's lessons were surfaced in recall (E-credit). */
+  cited_count: number;
+  planner_lessons: number;
+  executor_lessons: number;
+  lesson_preview: string | null;
+  created_at: string;
+  closed_at: string | null;
+}
+
+export interface EpisodesResponse {
+  total: number;
+  items: EpisodeRow[];
+}
+
+// Maintenance — Curator loop observability (Phase 8).
+export interface MaintenanceProposalRow {
+  id: string;
+  /** proposed | applied | rejected | stale. */
+  status: string;
+  issue_number: number | null;
+  ops_total: number;
+  /** ops touching a human-sourced fact (operable golden layer). */
+  golden_ops: number;
+  ops_by_kind: Record<string, number>;
+  created_at: string;
+  applied_at: string | null;
+}
+
+export interface LayerHealth {
+  facts_active: number;
+  knowledges_active: number;
+  procedural_total: number;
+}
+
+// 7-day recall-delivery summary, parsed from Brain's app-log tail.
+export interface DeliverySummary {
+  available: boolean;
+  count: number;
+  median_digest_size: number;
+  median_machine_size: number;
+  by_phase: Record<string, number>;
+  dropped: Record<string, number>;
+  note: string;
+}
+
+export interface MaintenanceResponse {
+  total: number;
+  items: MaintenanceProposalRow[];
+  health: LayerHealth;
+  delivery: DeliverySummary;
+}
+
+export interface MaintenanceOpDetail {
+  index: number;
+  kind: string;
+  rationale: string;
+  lens: string | null;
+  /** canonical_alias / knowledge_name / skill. */
+  target: string | null;
+  /** short-ids the op touches (F-…/K-…). */
+  refs: string[];
+  /** curator_op_applied / _skipped_stale / _already_applied / _failed. */
+  decision: string | null;
+}
+
+export interface ReviewedUntouched {
+  kind: string;
+  id: string;
+  lens: string;
+  reason: string;
+}
+
+export interface MaintenanceProposalDetail {
+  id: string;
+  status: string;
+  issue_number: number | null;
+  created_at: string;
+  applied_at: string | null;
+  ops: MaintenanceOpDetail[];
+  reviewed_untouched: ReviewedUntouched[];
+  lens_counts: Record<string, number>;
 }

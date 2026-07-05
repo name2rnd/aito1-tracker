@@ -2,14 +2,20 @@ import { queryOptions } from "@tanstack/react-query";
 import type {
   AdviceResponse,
   DiaryResponse,
+  EpisodesResponse,
   FactQueriesResponse,
   FactsResponse,
   KnowledgesResponse,
+  MaintenanceProposalDetail,
+  MaintenanceResponse,
   MannersResponse,
   RulesResponse,
   TaskClassesResponse,
   TemplatesResponse,
 } from "./types";
+
+export type FactSource = "human" | "planner" | "executor" | "brain";
+export type KnowledgeSort = "created" | "cited";
 
 // Monitoring data comes from Brain (it owns the aito1_* tables), reached
 // through a same-origin Next.js BFF proxy — NOT the Go ApiClient. The BFF
@@ -36,13 +42,20 @@ export const monitoringKeys = {
   factQueries: (limit: number) =>
     ["monitoring", "fact-queries", limit] as const,
   classes: (limit: number) => ["monitoring", "classes", limit] as const,
-  facts: (limit: number) => ["monitoring", "facts", limit] as const,
+  facts: (limit: number, source: FactSource | null) =>
+    ["monitoring", "facts", limit, source] as const,
   rules: (limit: number) => ["monitoring", "rules", limit] as const,
   advice: (limit: number) => ["monitoring", "advice", limit] as const,
   manners: () => ["monitoring", "manners"] as const,
   templates: (limit: number) => ["monitoring", "templates", limit] as const,
-  knowledges: (limit: number) => ["monitoring", "knowledges", limit] as const,
+  knowledges: (limit: number, skillOnly: boolean, sort: KnowledgeSort) =>
+    ["monitoring", "knowledges", limit, skillOnly, sort] as const,
   diary: (limit: number) => ["monitoring", "diary", limit] as const,
+  episodes: (limit: number) => ["monitoring", "episodes", limit] as const,
+  maintenance: (limit: number) =>
+    ["monitoring", "maintenance", limit] as const,
+  maintenanceDetail: (id: string) =>
+    ["monitoring", "maintenance", "detail", id] as const,
 };
 
 export function factQueriesOptions(limit = 100) {
@@ -62,10 +75,11 @@ export function classesOptions(limit = 200) {
   });
 }
 
-export function factsOptions(limit = 200) {
+export function factsOptions(limit = 200, source: FactSource | null = null) {
+  const q = source ? `&source=${source}` : "";
   return queryOptions({
-    queryKey: monitoringKeys.facts(limit),
-    queryFn: () => getJson<FactsResponse>(`/facts?limit=${limit}`),
+    queryKey: monitoringKeys.facts(limit, source),
+    queryFn: () => getJson<FactsResponse>(`/facts?limit=${limit}${q}`),
     staleTime: 30_000,
   });
 }
@@ -117,10 +131,16 @@ export async function deleteTemplate(id: string): Promise<void> {
   }
 }
 
-export function knowledgesOptions(limit = 200) {
+export function knowledgesOptions(
+  limit = 200,
+  skillOnly = false,
+  sort: KnowledgeSort = "created",
+) {
+  const q = `${skillOnly ? "&skill_only=true" : ""}&sort=${sort}`;
   return queryOptions({
-    queryKey: monitoringKeys.knowledges(limit),
-    queryFn: () => getJson<KnowledgesResponse>(`/knowledges?limit=${limit}`),
+    queryKey: monitoringKeys.knowledges(limit, skillOnly, sort),
+    queryFn: () =>
+      getJson<KnowledgesResponse>(`/knowledges?limit=${limit}${q}`),
     staleTime: 30_000,
   });
 }
@@ -130,5 +150,35 @@ export function diaryOptions(limit = 200) {
     queryKey: monitoringKeys.diary(limit),
     queryFn: () => getJson<DiaryResponse>(`/diary?limit=${limit}`),
     staleTime: 30_000,
+  });
+}
+
+export function episodesOptions(limit = 200) {
+  return queryOptions({
+    queryKey: monitoringKeys.episodes(limit),
+    queryFn: () => getJson<EpisodesResponse>(`/episodes?limit=${limit}`),
+    staleTime: 30_000,
+  });
+}
+
+export function maintenanceOptions(limit = 50) {
+  return queryOptions({
+    queryKey: monitoringKeys.maintenance(limit),
+    queryFn: () => getJson<MaintenanceResponse>(`/maintenance?limit=${limit}`),
+    staleTime: 30_000,
+  });
+}
+
+// Per-proposal ops + apply outcome. `enabled` lets the tab defer the fetch
+// until a row is expanded.
+export function maintenanceDetailOptions(id: string | null) {
+  return queryOptions({
+    queryKey: monitoringKeys.maintenanceDetail(id ?? ""),
+    queryFn: () =>
+      getJson<MaintenanceProposalDetail>(
+        `/maintenance/${encodeURIComponent(id ?? "")}`,
+      ),
+    staleTime: 30_000,
+    enabled: id !== null,
   });
 }

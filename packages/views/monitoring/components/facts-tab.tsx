@@ -1,7 +1,9 @@
 "use client";
 
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { factsOptions } from "@multica/core/monitoring";
+import type { FactSource } from "@multica/core/monitoring";
 import { cn } from "@multica/ui/lib/utils";
 import { Badge } from "@multica/ui/components/ui/badge";
 import {
@@ -21,11 +23,24 @@ import {
   formatWhen,
 } from "./tab-chrome";
 
+const SOURCES: (FactSource | null)[] = [
+  null,
+  "human",
+  "planner",
+  "executor",
+  "brain",
+];
+
 // Facts — the system's long-term knowledge (aito1_facts), ranked by usage
-// (reference_count + pull_count). Invalidated facts stay visible, dimmed.
+// (reference_count + pull_count). Invalidated facts stay visible, dimmed, with
+// the Curator's merge/route reason. Filter by source; the golden badge counts
+// active human-sourced facts (the operable golden layer).
 export function FactsTab() {
   const { t } = useT("monitoring");
-  const { data, isLoading, isError, refetch } = useQuery(factsOptions());
+  const [source, setSource] = useState<FactSource | null>(null);
+  const { data, isLoading, isError, refetch } = useQuery(
+    factsOptions(200, source),
+  );
 
   return (
     <div>
@@ -34,6 +49,30 @@ export function FactsTab() {
         subtitle={t(($) => $.facts.subtitle)}
         count={data?.total}
       />
+      <div className="mb-3 flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap gap-1">
+          {SOURCES.map((s) => (
+            <button
+              key={s ?? "all"}
+              type="button"
+              onClick={() => setSource(s)}
+              className={cn(
+                "rounded-md border px-2 py-0.5 text-xs transition-colors",
+                source === s
+                  ? "border-primary bg-primary/10 text-foreground"
+                  : "text-muted-foreground hover:bg-muted",
+              )}
+            >
+              {s ?? t(($) => $.facts.source_all)}
+            </button>
+          ))}
+        </div>
+        {data && (
+          <Badge variant="secondary" className="ml-auto">
+            {t(($) => $.facts.golden_badge, { count: data.golden_inbox })}
+          </Badge>
+        )}
+      </div>
       {isLoading ? (
         <TableSkeleton />
       ) : isError ? (
@@ -69,7 +108,7 @@ export function FactsTab() {
                       </span>
                       {!f.active && (
                         <Badge variant="outline" className="shrink-0">
-                          {t(($) => $.facts.invalid)}
+                          {f.invalidation_reason ?? t(($) => $.facts.invalid)}
                         </Badge>
                       )}
                     </span>

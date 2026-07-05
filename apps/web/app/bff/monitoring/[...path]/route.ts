@@ -21,6 +21,8 @@ const ALLOWED = new Set([
   "templates",
   "knowledges",
   "diary",
+  "episodes",
+  "maintenance",
 ]);
 
 // Most subpaths live under Brain's /api/monitoring/*; manners is the manners
@@ -45,11 +47,16 @@ export async function GET(
   }
 
   const { path } = await ctx.params;
-  if (path.length !== 1 || !ALLOWED.has(path[0]!)) {
+  // Single-segment allowlisted subpath, OR the maintenance/<id> detail.
+  const isList = path.length === 1 && ALLOWED.has(path[0]!);
+  const isMaintenanceDetail = path.length === 2 && path[0] === "maintenance";
+  if (!isList && !isMaintenanceDetail) {
     return NextResponse.json({ detail: "not found" }, { status: 404 });
   }
 
-  const target = brainTarget(path[0]!, req.nextUrl.search);
+  const target = isMaintenanceDetail
+    ? `${BRAIN_URL}/api/monitoring/maintenance/${encodeURIComponent(path[1]!)}${req.nextUrl.search}`
+    : brainTarget(path[0]!, req.nextUrl.search);
   try {
     const upstream = await fetch(target, {
       headers: { accept: "application/json" },

@@ -1435,6 +1435,42 @@ intake. «Если я выбираю Create Issue — нужно выбират�
 
 ---
 
+### Патч 43 — Monitoring под memory-v2 + Curator: расширенные Facts/Knowledges + новые Episodes/Maintenance (memory-v2 08)
+
+Только фронт (Brain-сторона — в arc-репо `aito1`, эндпоинты `/api/monitoring/*`). Наблюдаемость под новую семантику памяти после Curator-петли.
+
+- BFF `apps/web/app/bff/monitoring/[...path]/route.ts` — в allowlist добавлены
+  `episodes`, `maintenance`; GET теперь пропускает и 2-сегментный `maintenance/<id>`
+  (detail), прокидывая на `/api/monitoring/maintenance/<id>`.
+- `packages/core/monitoring/{types,queries}.ts` — типы `EpisodeRow`/`MaintenanceProposalRow`/
+  `MaintenanceProposalDetail`/`LayerHealth`/`DeliverySummary` + расширены `FactRow`
+  (`invalidation_reason`/`invalidated_by_fact_id`) и `FactsResponse` (`golden_inbox`),
+  `KnowledgeRow` (`served_count`/`cited_count`); options с параметрами
+  (`factsOptions(source)`, `knowledgesOptions(skillOnly, sort)`, `episodesOptions`,
+  `maintenanceOptions`, `maintenanceDetailOptions` с `enabled`).
+- `packages/views/monitoring/components/` — новые `episodes-tab.tsx`, `maintenance-tab.tsx`
+  (health-бар + delivery-блок + лента предложений с ленивым разворотом detail: ops с
+  rationale/lens/refs + per-op decision + reviewed-but-untouched + lens_counts); Facts-таб
+  — source-чипы + golden-бейдж + `invalidation_reason` на инвалидированных строках;
+  Knowledges-таб — колонка served/cited + чип «skill lessons» + sort newest/cited.
+  `monitoring-page.tsx` — регистрация двух вкладок (иконки `History`/`Recycle`).
+- i18n `en/zh-Hans/monitoring.json` — секции `episodes`/`maintenance` + ключи
+  facts.`{source_all,golden_badge}` / knowledges.`{col_usage,usage_hint,skill_only,
+  sort_created,sort_cited}` (parity-тест зелёный).
+
+**Проверки:** `pnpm typecheck` = 0 (6 пакетов); `locales/parity.test.ts` 47/47;
+новых lint/vitest-падений нет (app-sidebar-фейл предсуществующий); live через Kimi —
+все 4 вкладки на реальных данных: Facts (48 golden, curator-merge trail), Knowledges
+(skill:-уроки + served/cited), Episodes (AIT-N + lessons + outcome), Maintenance
+(health 842/136/240 + delivery 17 recalls + лента AIT-884/883/882 + разворот ops/refs).
+
+**Если конфликт:** upstream может переверстать Monitoring sub-nav — вкладки добавляются
+в `TAB_KEYS`/`TAB_ICONS`/`TabsContent` в `monitoring-page.tsx`. BFF-detail-ветка —
+единственное отступление от «1 сегмент = 1 подпуть» (иначе как Manners). Компоненты
+изолированы (по файлу на вкладку), общий chrome — `tab-chrome.tsx`.
+
+---
+
 ## Связанные правки **вне** этого репо (для полноты картины)
 
 Эти правки лежат в других репо/файлах, но без них наш форк работает не полностью. Они описаны отдельно — здесь только указатели:

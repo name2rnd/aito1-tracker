@@ -12,6 +12,8 @@
     "advice": "建议",
     "templates": "模板",
     "knowledges": "知识",
+    "episodes": "回合",
+    "maintenance": "维护",
     "diary": "日记"
   },
   "questions": {
@@ -43,6 +45,8 @@
     "col_last": "最近使用",
     "uses_breakdown": "{{ref}} 召回 · {{pull}} 拉取",
     "invalid": "失效",
+    "source_all": "全部",
+    "golden_badge": "{{count}} 黄金",
     "empty": "暂无事实。"
   },
   "rules": {
@@ -122,9 +126,50 @@
     "col_title": "知识",
     "col_sources": "来源",
     "col_version": "版本",
+    "col_usage": "下发 / 引用",
     "col_created": "创建",
     "revision": "修订",
+    "usage_hint": "下发到召回 / 被引用（排序看引用）",
+    "skill_only": "技能课",
+    "sort_created": "最新",
+    "sort_cited": "最常引用",
     "empty": "暂无知识文档。"
+  },
+  "episodes": {
+    "title": "回合",
+    "subtitle": "已关闭的任务及其教训，最新在前",
+    "col_episode": "任务",
+    "col_outcome": "结果",
+    "col_lessons": "教训",
+    "col_cited": "引用",
+    "col_closed": "关闭",
+    "lessons_hint": "执行者 / 规划者 要点数",
+    "empty": "暂无回合。"
+  },
+  "maintenance": {
+    "title": "维护",
+    "subtitle": "策展人压缩回路——提案、健康度、投递",
+    "col_proposal": "运行",
+    "col_status": "状态",
+    "col_ops": "操作",
+    "col_created": "创建",
+    "golden_ops": "{{count}} 黄金",
+    "health_facts": "事实",
+    "health_knowledges": "知识",
+    "health_procedural": "程序性",
+    "delivery_title": "召回投递（近 7 天）",
+    "delivery_recalls": "次召回",
+    "delivery_median": "中位 摘要 / 机器块",
+    "delivery_dropped": "丢弃",
+    "reviewed_title": "已审阅但未改动",
+    "lens_counts": "按透镜的候选",
+    "decision": {
+      "applied": "已应用",
+      "skipped": "已跳过",
+      "already": "已存在",
+      "failed": "失败"
+    },
+    "empty": "暂无维护提案。"
   },
   "diary": {
     "title": "日记",

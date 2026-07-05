@@ -12,6 +12,8 @@
     "advice": "Advice",
     "templates": "Templates",
     "knowledges": "Knowledges",
+    "episodes": "Episodes",
+    "maintenance": "Maintenance",
     "diary": "Diary"
   },
   "questions": {
@@ -43,6 +45,8 @@
     "col_last": "Last used",
     "uses_breakdown": "{{ref}} recall · {{pull}} pull",
     "invalid": "invalid",
+    "source_all": "all",
+    "golden_badge": "{{count}} golden",
     "empty": "No facts learned yet."
   },
   "rules": {
@@ -122,9 +126,50 @@
     "col_title": "Knowledge",
     "col_sources": "Sources",
     "col_version": "Version",
+    "col_usage": "Served / cited",
     "col_created": "Created",
     "revision": "rev",
+    "usage_hint": "served into recall / cited (ranking reads cited)",
+    "skill_only": "skill lessons",
+    "sort_created": "newest",
+    "sort_cited": "most cited",
     "empty": "No knowledge documents yet."
+  },
+  "episodes": {
+    "title": "Episodes",
+    "subtitle": "Closed tasks and their lessons, newest first",
+    "col_episode": "Task",
+    "col_outcome": "Outcome",
+    "col_lessons": "Lessons",
+    "col_cited": "Cited",
+    "col_closed": "Closed",
+    "lessons_hint": "executor / planner bullet count",
+    "empty": "No episodes yet."
+  },
+  "maintenance": {
+    "title": "Maintenance",
+    "subtitle": "Curator compaction loop — proposals, health, delivery",
+    "col_proposal": "Run",
+    "col_status": "Status",
+    "col_ops": "Operations",
+    "col_created": "Created",
+    "golden_ops": "{{count}} golden",
+    "health_facts": "facts",
+    "health_knowledges": "knowledges",
+    "health_procedural": "procedural",
+    "delivery_title": "Recall delivery, last 7 days",
+    "delivery_recalls": "recalls",
+    "delivery_median": "median digest / machine",
+    "delivery_dropped": "dropped",
+    "reviewed_title": "Reviewed but untouched",
+    "lens_counts": "candidates by lens",
+    "decision": {
+      "applied": "applied",
+      "skipped": "skipped",
+      "already": "already",
+      "failed": "failed"
+    },
+    "empty": "No maintenance proposals yet."
   },
   "diary": {
     "title": "Diary",
