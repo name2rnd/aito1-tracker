@@ -15,6 +15,7 @@ import {
   ownerTasksOptions,
   resolvedDecisionsOptions,
   useApproveLesson,
+  useRejectLesson,
   useSetLessonStatus,
 } from "@multica/core/cognitive-pm";
 import type {
@@ -207,7 +208,7 @@ const LEGEND: { title: string; target: string; text: string }[] = [
   {
     title: "Уроки",
     target: "pm-lessons",
-    text: "субботний Cognitive Reflector разбирает закрытые решения и твои вердикты за неделю и извлекает уроки (рождаются в карантине). Кнопка «Одобрить» делает урок активным — PM читает его в начале каждого прогона. Таймлайн урока: что изменил, куда встроено, сработал ли.",
+    text: "субботний Cognitive Reflector разбирает закрытые решения и твои вердикты за неделю и извлекает уроки (рождаются в карантине). Решение принимается здесь: «Одобрить» делает урок активным (PM читает его в начале каждого прогона), «Отклонить» — мягкий отказ (урок остаётся в карантине, помечается harmful; CR может переформулировать и вынести снова). Таймлайн урока: что изменил, куда встроено, сработал ли.",
   },
   {
     title: "Калибровка",
@@ -329,7 +330,8 @@ function IntroSection() {
               <SchemeArrow />
               <SchemeNode target="pm-lessons">УРОКИ</SchemeNode>
               <span className="text-[11px] text-muted-foreground">
-                : карантин → «Одобрить» → active → в поведение PM
+                : карантин → «Одобрить» → active → в поведение PM · «Отклонить» →
+                harmful, CR может вернуться
               </span>
             </SchemeRow>
             <SchemeRow>
@@ -721,18 +723,30 @@ function LessonTimeline({ lessonId }: { lessonId: string }) {
 function LessonCard({ lesson }: { lesson: Lesson }) {
   const [expanded, setExpanded] = useState(false);
   const [retireOpen, setRetireOpen] = useState(false);
+  const [rejectOpen, setRejectOpen] = useState(false);
   const approve = useApproveLesson(PROJECT_ID);
+  const reject = useRejectLesson(PROJECT_ID);
   const setStatus = useSetLessonStatus(PROJECT_ID);
-  const mutating = approve.isPending || setStatus.isPending;
+  const mutating = approve.isPending || reject.isPending || setStatus.isPending;
   const scopeIn = lesson.scope_in ?? [];
   const scopeOut = lesson.scope_out ?? [];
 
   // Гейт тренера: approve — один клик (ритуал субботнего разбора, без лишних
-  // подтверждений); retire — с confirm-диалогом (tombstone, но решение весомое).
+  // подтверждений); reject и retire — с confirm-диалогом (пишут harmful /
+  // tombstone, решение весомое).
   const handleApprove = () => {
     approve.mutate(lesson.id, {
       onSuccess: () => toast.success("Урок одобрен — active"),
       onError: () => toast.error("Не удалось одобрить урок"),
+    });
+  };
+  // Мягкий отказ: урок остаётся в карантине, помечается harmful; CR может
+  // переформулировать и вынести снова (не tombstone).
+  const handleReject = () => {
+    setRejectOpen(false);
+    reject.mutate(lesson.id, {
+      onSuccess: () => toast.success("Урок отклонён — остаётся в карантине"),
+      onError: () => toast.error("Не удалось отклонить урок"),
     });
   };
   const handleRetire = () => {
@@ -769,15 +783,26 @@ function LessonCard({ lesson }: { lesson: Lesson }) {
         </span>
         <span className="ml-auto flex items-center gap-1.5">
           {lesson.status === "quarantined" && (
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={mutating}
-              onClick={handleApprove}
-              className="h-6 border-emerald-500/40 px-2 text-xs text-emerald-600 hover:bg-emerald-500/10 dark:text-emerald-400"
-            >
-              Одобрить
-            </Button>
+            <>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={mutating}
+                onClick={handleApprove}
+                className="h-6 border-emerald-500/40 px-2 text-xs text-emerald-600 hover:bg-emerald-500/10 dark:text-emerald-400"
+              >
+                Одобрить
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={mutating}
+                onClick={() => setRejectOpen(true)}
+                className="h-6 border-amber-500/40 px-2 text-xs text-amber-600 hover:bg-amber-500/10 dark:text-amber-400"
+              >
+                Отклонить
+              </Button>
+            </>
           )}
           {lesson.status !== "retired" && (
             <Button
@@ -804,6 +829,33 @@ function LessonCard({ lesson }: { lesson: Lesson }) {
           </button>
         </span>
       </div>
+      <AlertDialog
+        open={rejectOpen}
+        onOpenChange={(v) => {
+          if (!mutating) setRejectOpen(v);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Отклонить кандидат-урок?</AlertDialogTitle>
+            <AlertDialogDescription className="break-words">
+              Мягкий отказ: урок остаётся в карантине и помечается как навредивший
+              (harmful) — сигнал Cognitive Reflector'у. CR может переформулировать
+              его (сузить scope, поправить текст) и вынести снова. Это не удаление.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={mutating}>Отмена</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleReject}
+              disabled={mutating}
+              className="bg-amber-600 text-white hover:bg-amber-600/90"
+            >
+              Отклонить
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
       <AlertDialog
         open={retireOpen}
         onOpenChange={(v) => {

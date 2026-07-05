@@ -1471,6 +1471,37 @@ intake. «Если я выбираю Create Issue — нужно выбират�
 
 ---
 
+### Патч 44 — Cognitive-PM: кнопка «Отклонить» урок (мягкий reject в кокпите)
+
+Утверждение/отклонение уроков собрано в одну точку — вкладку Cognitive PM. Раньше
+approve был в кокпите, а reject — только косвенно, через отмену тикета (свипер ловил →
+harmful). Теперь reject — явная кнопка рядом с «Одобрить»; отмена тикета больше не канал
+reject (эффект переехал в Brain-endpoint). Тикет CR остаётся уведомлением, ведущим в
+раздел. Семантика мягкая (решение тренера 2026-07-05): урок остаётся в карантине +
+harmful+1, CR может переформулировать и вынести снова. Бэкенд — arc-репо AITO1
+(`POST /api/pm/lesson/{id}/reject`, `pm_repos.reject_lesson`, enforcement перестал
+бампать harmful у lesson-тикетов). Здесь — форк-часть.
+
+**Что изменено (аддитивно к Патч 36):**
+- `apps/web/app/bff/pm/[...path]/route.ts` — `isAllowedPost` += `reject` (3-й shape:
+  `lesson/{uuid}/reject`, тот же shape-based гейт, не префикс).
+- `packages/core/cognitive-pm/mutations.ts` — `useRejectLesson` (POST reject БЕЗ body,
+  идемпотентно на повтор — контракт `brain/api/pm.py`); onSettled invalidate
+  `lessons(pid)` + `lessonEvents(lessonId)`.
+- `packages/views/cognitive-pm/.../cognitive-pm-page.tsx` — кнопка «Отклонить» (amber)
+  на quarantined рядом с «Одобрить»; AlertDialog-подтверждение (текст: мягко, остаётся
+  в карантине, harmful, CR может вернуться, не удаление); hint-тексты секции и схемы.
+
+**Контракт Brain:** POST `/pm/lesson/{id}/reject` без body → `{ok}`; 404 если урока нет;
+повтор — no-op 200 (guard по последнему `lesson_events.op`).
+
+**Сборка/деплой:** `STANDALONE=true pnpm --filter web build` → `./scripts/aito1-deploy.sh frontend`.
+
+**Если конфликт:** аддитивно; точки касания — `isAllowedPost` (+одна ветка) и LessonCard
+(кнопка + диалог, зеркало retire-диалога Патча 36).
+
+---
+
 ## Связанные правки **вне** этого репо (для полноты картины)
 
 Эти правки лежат в других репо/файлах, но без них наш форк работает не полностью. Они описаны отдельно — здесь только указатели:

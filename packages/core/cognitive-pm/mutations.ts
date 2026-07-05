@@ -1,10 +1,10 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { cognitivePmKeys } from "./queries";
 
-// Гейт тренера (план junior-pm §3 «Кокпит» п.3, одобрено владельцем): единственные
-// мутации кокпита — approve и retire/quarantine урока. Идут через тот же BFF
-// (POST-allowlist ровно на lesson/{id}/approve и lesson/{id}/status); всё
-// остальное в кокпите остаётся read-only.
+// Гейт тренера (план junior-pm §3 «Кокпит» п.3, одобрено владельцем): мутации
+// кокпита — approve, reject и retire/quarantine урока. Идут через тот же BFF
+// (POST-allowlist на lesson/{id}/approve, lesson/{id}/reject и lesson/{id}/status);
+// всё остальное в кокпите остаётся read-only.
 const BFF_BASE = "/bff/pm";
 
 async function postJson(path: string, body?: unknown): Promise<void> {
@@ -28,6 +28,22 @@ export function useApproveLesson(pid: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (lessonId: string) => postJson(`/lesson/${lessonId}/approve`),
+    onSettled: (_data, _err, lessonId) => {
+      void qc.invalidateQueries({ queryKey: cognitivePmKeys.lessons(pid) });
+      void qc.invalidateQueries({
+        queryKey: cognitivePmKeys.lessonEvents(lessonId),
+      });
+    },
+  });
+}
+
+// 👎 владельца: отклонить кандидат-урок (мягко). Урок остаётся quarantined,
+// Brain пишет lesson_events op='reject' + harmful_count+1; CR может переформулировать
+// и вынести снова. Без body; идемпотентно на повторный клик — контракт brain/api/pm.py.
+export function useRejectLesson(pid: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (lessonId: string) => postJson(`/lesson/${lessonId}/reject`),
     onSettled: (_data, _err, lessonId) => {
       void qc.invalidateQueries({ queryKey: cognitivePmKeys.lessons(pid) });
       void qc.invalidateQueries({
