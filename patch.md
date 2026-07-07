@@ -1502,6 +1502,35 @@ harmful+1, CR может переформулировать и вынести с
 
 ---
 
+### Патч 45 — Cognitive-PM кокпит: селектор проектов (мультипроектный PM, Ф3)
+
+Кокпит больше не прибит к dogfood-проекту: PM ведёт N проектов, выбор — из реестра Brain
+(`aito1_pm_projects`, arc-репо AITO1; дизайн `plans/pm-multiproject-2026-07-07.md`).
+
+**Что изменено (аддитивно к Патч 19/20/21/36/44):**
+- `apps/web/app/bff/pm/[...path]/route.ts` — GET-allowlist += `projects`
+  (`/bff/pm/projects` → Brain `GET /api/pm/projects`, реестр с display_name из `project.title`).
+- `packages/core/cognitive-pm/types.ts` — тип `PmProject`; `queries.ts` —
+  `pmProjectsOptions()` (ключ `cognitivePmKeys.projects()`).
+- `packages/core/cognitive-pm/mutations.ts` — onSettled инвалидирует по префиксу
+  `cognitivePmKeys.all` (закрывает stale-кэш при переключении проектов).
+- `packages/views/cognitive-pm/.../cognitive-pm-page.tsx` — удалена константа `PROJECT_ID`;
+  дропдаун `PmProjectPicker` в шапке; выбор живёт в `?project=<uuid>` (конвенция
+  `?tab=` monitoring) + localStorage `aito1-pm-cockpit-project`; резолв значения строго
+  против списка ручки (не найден → баннер + первый проект); пустой реестр → пустое
+  состояние; секции получают `projectId` через props, LessonCard замыкает pid в своих
+  mutation-хуках (переключение проекта при открытом confirm-диалоге безопасно).
+
+**Контракт Brain:** GET `/pm/projects` → `[{project_id, display_name, nid, tracker_queue,
+tracker_project_stid, bm_space, created_at}]`, порядок по created_at.
+
+**Сборка/деплой:** `./scripts/aito1-deploy.sh frontend`.
+
+**Если конфликт:** всё в наших файлах cognitive-pm (аддитивные патчи 19/20) + одна строка
+BFF-allowlist; upstream не затронут.
+
+---
+
 ## Связанные правки **вне** этого репо (для полноты картины)
 
 Эти правки лежат в других репо/файлах, но без них наш форк работает не полностью. Они описаны отдельно — здесь только указатели:

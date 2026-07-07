@@ -27,12 +27,10 @@ async function postJson(path: string, body?: unknown): Promise<void> {
 export function useApproveLesson(pid: string) {
   const qc = useQueryClient();
   return useMutation({
+    mutationKey: [...cognitivePmKeys.lessons(pid), "approve"] as const,
     mutationFn: (lessonId: string) => postJson(`/lesson/${lessonId}/approve`),
-    onSettled: (_data, _err, lessonId) => {
-      void qc.invalidateQueries({ queryKey: cognitivePmKeys.lessons(pid) });
-      void qc.invalidateQueries({
-        queryKey: cognitivePmKeys.lessonEvents(lessonId),
-      });
+    onSettled: () => {
+      void qc.invalidateQueries({ queryKey: cognitivePmKeys.all });
     },
   });
 }
@@ -43,12 +41,10 @@ export function useApproveLesson(pid: string) {
 export function useRejectLesson(pid: string) {
   const qc = useQueryClient();
   return useMutation({
+    mutationKey: [...cognitivePmKeys.lessons(pid), "reject"] as const,
     mutationFn: (lessonId: string) => postJson(`/lesson/${lessonId}/reject`),
-    onSettled: (_data, _err, lessonId) => {
-      void qc.invalidateQueries({ queryKey: cognitivePmKeys.lessons(pid) });
-      void qc.invalidateQueries({
-        queryKey: cognitivePmKeys.lessonEvents(lessonId),
-      });
+    onSettled: () => {
+      void qc.invalidateQueries({ queryKey: cognitivePmKeys.all });
     },
   });
 }
@@ -58,6 +54,7 @@ export function useRejectLesson(pid: string) {
 export function useSetLessonStatus(pid: string) {
   const qc = useQueryClient();
   return useMutation({
+    mutationKey: [...cognitivePmKeys.lessons(pid), "status"] as const,
     mutationFn: ({
       lessonId,
       status,
@@ -65,11 +62,8 @@ export function useSetLessonStatus(pid: string) {
       lessonId: string;
       status: "retired" | "quarantined";
     }) => postJson(`/lesson/${lessonId}/status`, { status, actor: "owner" }),
-    onSettled: (_data, _err, vars) => {
-      void qc.invalidateQueries({ queryKey: cognitivePmKeys.lessons(pid) });
-      void qc.invalidateQueries({
-        queryKey: cognitivePmKeys.lessonEvents(vars.lessonId),
-      });
+    onSettled: () => {
+      void qc.invalidateQueries({ queryKey: cognitivePmKeys.all });
     },
   });
 }

@@ -3,7 +3,7 @@
 
 import { useEffect, useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { ChevronDown, ChevronRight, Copy } from "lucide-react";
+import { Check, ChevronDown, ChevronRight, Copy } from "lucide-react";
 import { toast } from "sonner";
 import {
   calibrationOptions,
@@ -13,6 +13,7 @@ import {
   lessonEventsOptions,
   lessonsOptions,
   ownerTasksOptions,
+  pmProjectsOptions,
   resolvedDecisionsOptions,
   useApproveLesson,
   useRejectLesson,
@@ -23,6 +24,7 @@ import type {
   DecisionAlternative,
   InfoBasisRef,
   Lesson,
+  PmProject,
   ResolvedDecision,
 } from "@multica/core/cognitive-pm";
 import type { AgentTask } from "@multica/core/types/agent";
@@ -39,6 +41,12 @@ import {
 import { Badge } from "@multica/ui/components/ui/badge";
 import { Button } from "@multica/ui/components/ui/button";
 import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@multica/ui/components/ui/dropdown-menu";
+import {
   Table,
   TableBody,
   TableCell,
@@ -52,6 +60,7 @@ import {
   TooltipTrigger,
 } from "@multica/ui/components/ui/tooltip";
 import { cn } from "@multica/ui/lib/utils";
+import { useNavigation } from "../../navigation";
 import { TranscriptButton } from "../../common/task-transcript";
 
 // Cockpit for the cognitive PM (digital twin). Window onto the twin's mind held
@@ -61,9 +70,9 @@ import { TranscriptButton } from "../../common/task-transcript";
 // lesson gate (approve / retire — the only UI mutations, через BFF POST-allowlist).
 // The twin has no personal goal — the goal is closing Tracker milestones on time.
 // Execution truth (milestones, tasks) lives in Yandex Tracker, read-only.
-// Single dogfood project. Цель витрины — разбор решения тренером за ≤5 минут
-// (план junior-pm §8).
-const PROJECT_ID = "6318c78d-4044-452c-99df-ca9db44d678c";
+// Цель витрины — разбор решения тренером за ≤5 минут (план junior-pm §8).
+const PROJECT_QUERY_KEY = "project";
+const PROJECT_LS_KEY = "aito1-pm-cockpit-project";
 
 function fmtDate(d: string | null): string {
   if (!d) return "—";
@@ -101,6 +110,41 @@ function traceTask(taskId: string): AgentTask {
     error: null,
     created_at: "",
   };
+}
+
+function PmProjectPicker({
+  projects,
+  projectId,
+  onSelect,
+}: {
+  projects: PmProject[];
+  projectId: string;
+  onSelect: (projectId: string) => void;
+}) {
+  const current = projects.find((p) => p.project_id === projectId);
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger className="inline-flex min-w-0 max-w-full items-center gap-1.5 rounded border bg-background px-2 py-1 text-xs font-medium transition-colors hover:bg-accent/50">
+        <span className="truncate">
+          {current ? current.display_name : "Выбрать проект"}
+        </span>
+        <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="w-64">
+        {projects.map((p) => (
+          <DropdownMenuItem
+            key={p.project_id}
+            onClick={() => onSelect(p.project_id)}
+          >
+            <span className="truncate">{p.display_name}</span>
+            {p.project_id === projectId && (
+              <Check className="ml-auto h-3.5 w-3.5 shrink-0" />
+            )}
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
 }
 
 // --- Чипы источников + отвергнутые варианты (общее для открытых и закрытых) ---
@@ -357,8 +401,8 @@ const CHECKPOINT_STATUS_LABEL: Record<string, string> = {
   missed: "просрочен",
 };
 
-function CheckpointsSection() {
-  const { data, isLoading, isError } = useQuery(checkpointsOptions(PROJECT_ID));
+function CheckpointsSection({ projectId }: { projectId: string }) {
+  const { data, isLoading, isError } = useQuery(checkpointsOptions(projectId));
   return (
     <section className="mb-8" id="pm-checkpoints">
       <h2 className="mb-3 text-base font-semibold">Чекпоинты недели (к вехам)</h2>
@@ -406,8 +450,8 @@ function CheckpointsSection() {
   );
 }
 
-function CommitmentsSection() {
-  const { data, isLoading, isError } = useQuery(commitmentsOptions(PROJECT_ID));
+function CommitmentsSection({ projectId }: { projectId: string }) {
+  const { data, isLoading, isError } = useQuery(commitmentsOptions(projectId));
   return (
     <section className="mb-8" id="pm-commitments">
       <h2 className="mb-3 text-base font-semibold">Ожидаемые обязательства</h2>
@@ -458,8 +502,8 @@ function CommitmentsSection() {
   );
 }
 
-function DecisionsSection() {
-  const { data, isLoading, isError } = useQuery(decisionsOptions(PROJECT_ID));
+function DecisionsSection({ projectId }: { projectId: string }) {
+  const { data, isLoading, isError } = useQuery(decisionsOptions(projectId));
   return (
     <section className="mb-8" id="pm-decisions">
       <h2 className="mb-3 text-base font-semibold">Лог решений (открытые)</h2>
@@ -611,9 +655,9 @@ function ResolvedDecisionCard({ d }: { d: ResolvedDecision }) {
   );
 }
 
-function ResolvedDecisionsSection() {
+function ResolvedDecisionsSection({ projectId }: { projectId: string }) {
   const { data, isLoading, isError } = useQuery(
-    resolvedDecisionsOptions(PROJECT_ID),
+    resolvedDecisionsOptions(projectId),
   );
   return (
     <section className="mb-8" id="pm-resolved">
@@ -720,13 +764,19 @@ function LessonTimeline({ lessonId }: { lessonId: string }) {
   );
 }
 
-function LessonCard({ lesson }: { lesson: Lesson }) {
+function LessonCard({
+  lesson,
+  projectId,
+}: {
+  lesson: Lesson;
+  projectId: string;
+}) {
   const [expanded, setExpanded] = useState(false);
   const [retireOpen, setRetireOpen] = useState(false);
   const [rejectOpen, setRejectOpen] = useState(false);
-  const approve = useApproveLesson(PROJECT_ID);
-  const reject = useRejectLesson(PROJECT_ID);
-  const setStatus = useSetLessonStatus(PROJECT_ID);
+  const approve = useApproveLesson(projectId);
+  const reject = useRejectLesson(projectId);
+  const setStatus = useSetLessonStatus(projectId);
   const mutating = approve.isPending || reject.isPending || setStatus.isPending;
   const scopeIn = lesson.scope_in ?? [];
   const scopeOut = lesson.scope_out ?? [];
@@ -840,7 +890,7 @@ function LessonCard({ lesson }: { lesson: Lesson }) {
             <AlertDialogTitle>Отклонить кандидат-урок?</AlertDialogTitle>
             <AlertDialogDescription className="break-words">
               Мягкий отказ: урок остаётся в карантине и помечается как навредивший
-              (harmful) — сигнал Cognitive Reflector'у. CR может переформулировать
+              (harmful) — сигнал Cognitive Reflector. CR может переформулировать
               его (сузить scope, поправить текст) и вынести снова. Это не удаление.
             </AlertDialogDescription>
           </AlertDialogHeader>
@@ -904,8 +954,8 @@ function LessonCard({ lesson }: { lesson: Lesson }) {
   );
 }
 
-function LessonsSection() {
-  const { data, isLoading, isError } = useQuery(lessonsOptions(PROJECT_ID));
+function LessonsSection({ projectId }: { projectId: string }) {
+  const { data, isLoading, isError } = useQuery(lessonsOptions(projectId));
   return (
     <section className="mb-8" id="pm-lessons">
       <h2 className="mb-3 text-base font-semibold">Уроки</h2>
@@ -918,7 +968,7 @@ function LessonsSection() {
       ) : (
         <div className="space-y-3">
           {data.map((l) => (
-            <LessonCard key={l.id} lesson={l} />
+            <LessonCard key={l.id} lesson={l} projectId={projectId} />
           ))}
         </div>
       )}
@@ -965,8 +1015,8 @@ const CAL_HINTS = {
     "Квадрат промаха (уверенность − исход)²: 0 — идеальный прогнозист, 0.25 — уровень «всегда 50/50», 1 — уверенно ошибался. Ненахакиваем: улучшается только реальным улучшением прогнозов, поэтому PM не видит его как цель.",
 };
 
-function CalibrationSection() {
-  const { data, isLoading, isError } = useQuery(calibrationOptions(PROJECT_ID));
+function CalibrationSection({ projectId }: { projectId: string }) {
+  const { data, isLoading, isError } = useQuery(calibrationOptions(projectId));
   const groups = new Map<string, CalibrationRow[]>();
   for (const row of data ?? []) {
     const key = row.decision_type ?? NO_TYPE;
@@ -1074,8 +1124,8 @@ function verdictVariant(v: string): "secondary" | "outline" | "destructive" {
   return "outline";
 }
 
-function OwnerTasksSection() {
-  const { data, isLoading, isError } = useQuery(ownerTasksOptions(PROJECT_ID));
+function OwnerTasksSection({ projectId }: { projectId: string }) {
+  const { data, isLoading, isError } = useQuery(ownerTasksOptions(projectId));
   return (
     <section className="mb-8" id="pm-owner-tasks">
       <h2 className="mb-3 text-base font-semibold">Задачи на тебе + твой вердикт</h2>
@@ -1139,20 +1189,131 @@ function OwnerTasksSection() {
 }
 
 export function CognitivePmPage() {
+  const navigation = useNavigation();
+  const [storedProjectId, setStoredProjectId] = useState<
+    string | null | undefined
+  >(undefined);
+  const [projectNotFound, setProjectNotFound] = useState(false);
+  const {
+    data: projects,
+    isLoading: projectsLoading,
+    isError: projectsError,
+  } = useQuery(pmProjectsOptions());
+  const projectFromUrl = navigation.searchParams.get(PROJECT_QUERY_KEY);
+
+  useEffect(() => {
+    try {
+      setStoredProjectId(window.localStorage.getItem(PROJECT_LS_KEY));
+    } catch {
+      setStoredProjectId(null);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (storedProjectId === undefined || !projects || projects.length === 0) {
+      return;
+    }
+
+    const requestedProjectId = projectFromUrl ?? storedProjectId;
+    const requestedExists = requestedProjectId
+      ? projects.some((p) => p.project_id === requestedProjectId)
+      : false;
+    const nextProjectId =
+      requestedExists && requestedProjectId
+        ? requestedProjectId
+        : projects[0]!.project_id;
+
+    if (requestedProjectId && !requestedExists) {
+      setProjectNotFound(true);
+    }
+
+    try {
+      window.localStorage.setItem(PROJECT_LS_KEY, nextProjectId);
+    } catch {
+      // ок, просто не запомним.
+    }
+    if (storedProjectId !== nextProjectId) {
+      setStoredProjectId(nextProjectId);
+    }
+
+    if (projectFromUrl !== nextProjectId) {
+      const params = new URLSearchParams(navigation.searchParams);
+      params.set(PROJECT_QUERY_KEY, nextProjectId);
+      navigation.replace(`${navigation.pathname}?${params.toString()}`);
+    }
+  }, [
+    navigation,
+    projectFromUrl,
+    projects,
+    storedProjectId,
+  ]);
+
+  const setProject = (nextProjectId: string) => {
+    setProjectNotFound(false);
+    try {
+      window.localStorage.setItem(PROJECT_LS_KEY, nextProjectId);
+    } catch {
+      // ок, просто не запомним.
+    }
+    setStoredProjectId(nextProjectId);
+    const params = new URLSearchParams(navigation.searchParams);
+    params.set(PROJECT_QUERY_KEY, nextProjectId);
+    navigation.replace(`${navigation.pathname}?${params.toString()}`);
+  };
+
+  const selectedProjectId =
+    storedProjectId !== undefined && projects && projects.length > 0
+      ? (() => {
+          const requestedProjectId = projectFromUrl ?? storedProjectId;
+          return requestedProjectId &&
+            projects.some((p) => p.project_id === requestedProjectId)
+            ? requestedProjectId
+            : projects[0]!.project_id;
+        })()
+      : null;
+
   return (
     <div className="min-h-0 flex-1 overflow-y-auto">
       <div className="mx-auto w-full max-w-5xl p-4 md:p-6">
-        <h1 className="mb-4 text-sm font-semibold">
-          Когнитивный PM — двойник проекта
-        </h1>
-        <IntroSection />
-        <CheckpointsSection />
-        <OwnerTasksSection />
-        <CommitmentsSection />
-        <DecisionsSection />
-        <ResolvedDecisionsSection />
-        <LessonsSection />
-        <CalibrationSection />
+        <div className="mb-4 flex flex-wrap items-center gap-2">
+          <h1 className="text-sm font-semibold">
+            Когнитивный PM — двойник проекта
+          </h1>
+          {projects && selectedProjectId && (
+            <PmProjectPicker
+              projects={projects}
+              projectId={selectedProjectId}
+              onSelect={setProject}
+            />
+          )}
+        </div>
+        {projectNotFound && (
+          <div className="mb-4 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-700 dark:text-amber-300">
+            проект не найден в реестре PM
+          </div>
+        )}
+        {projectsLoading || storedProjectId === undefined ? (
+          <div className="text-sm text-muted-foreground">Загрузка…</div>
+        ) : projectsError ? (
+          <div className="text-sm text-destructive">
+            Ошибка загрузки реестра проектов PM.
+          </div>
+        ) : !projects || projects.length === 0 ? (
+          <div className="rounded-lg border bg-muted/20 p-4 text-sm text-muted-foreground">
+            реестр проектов PM пуст
+          </div>
+        ) : selectedProjectId ? (
+          <>
+            <IntroSection />
+            <CheckpointsSection projectId={selectedProjectId} />
+            <OwnerTasksSection projectId={selectedProjectId} />
+            <CommitmentsSection projectId={selectedProjectId} />
+            <DecisionsSection projectId={selectedProjectId} />
+            <ResolvedDecisionsSection projectId={selectedProjectId} />
+            <LessonsSection projectId={selectedProjectId} />
+            <CalibrationSection projectId={selectedProjectId} />
+          </>
+        ) : null}
       </div>
     </div>
   );

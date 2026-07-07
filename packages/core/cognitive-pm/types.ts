@@ -1,6 +1,16 @@
 // Cognitive-PM cockpit types — mirror Brain's /api/pm/* response shapes
 // (brain/api/pm.py). Read-only surface for the project view.
 
+export interface PmProject {
+  project_id: string;
+  display_name: string;
+  nid: number;
+  tracker_queue: string;
+  tracker_project_stid: number;
+  bm_space: string;
+  created_at: string;
+}
+
 // Чекпоинт — недельная декомпозиция ближайшей вехи Трекера (хранится у нас). Личной
 // цели у двойника нет: цель = закрыть вехи в Трекере в срок. milestone_key — веха Трекера.
 export interface Checkpoint {

@@ -7,6 +7,7 @@ import type {
   Lesson,
   LessonEvent,
   OwnerTaskTriage,
+  PmProject,
   ResolvedDecision,
 } from "./types";
 
@@ -29,6 +30,7 @@ async function getJson<T>(path: string): Promise<T> {
 
 export const cognitivePmKeys = {
   all: ["cognitive-pm"] as const,
+  projects: () => ["cognitive-pm", "projects"] as const,
   checkpoints: (pid: string) => ["cognitive-pm", "checkpoints", pid] as const,
   commitments: (pid: string) => ["cognitive-pm", "commitments", pid] as const,
   decisions: (pid: string) => ["cognitive-pm", "decisions", pid] as const,
@@ -40,6 +42,14 @@ export const cognitivePmKeys = {
   calibration: (pid: string) => ["cognitive-pm", "calibration", pid] as const,
   ownerTasks: (pid: string) => ["cognitive-pm", "owner-tasks", pid] as const,
 };
+
+export function pmProjectsOptions() {
+  return queryOptions({
+    queryKey: cognitivePmKeys.projects(),
+    queryFn: () => getJson<PmProject[]>("/projects"),
+    staleTime: 30_000,
+  });
+}
 
 // Чекпоинты — недельная декомпозиция вехи (наши). Личной цели у двойника нет.
 export function checkpointsOptions(pid: string) {

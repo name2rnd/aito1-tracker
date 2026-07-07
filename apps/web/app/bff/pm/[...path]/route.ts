@@ -21,6 +21,7 @@ const ALLOWED = new Set([
   "checkpoints",
   "commitments",
   "decisions",
+  "projects",
   "lessons",
   "lesson-events",
   "calibration",
