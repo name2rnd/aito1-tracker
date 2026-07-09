@@ -5,6 +5,14 @@ import { sortIssues } from "./sort";
 export const NO_PROJECT_LANE_ID = "project:none";
 export const PROJECT_LANE_PREFIX = "project:";
 
+// Terminal statuses do not count as active work: a project whose issues are all
+// done/cancelled is hidden from the board (no empty lanes cluttering the view).
+const TERMINAL_STATUSES: IssueStatus[] = ["done", "cancelled"];
+
+function activeIssueCount(issues: Issue[]): number {
+  return issues.filter((issue) => !TERMINAL_STATUSES.includes(issue.status)).length;
+}
+
 export interface BoardSwimlane {
   id: string;
   projectId: string | null;
@@ -63,8 +71,13 @@ export function buildProjectSwimlanes(
     : sortProjectsByPosition(projects).map((project) => project.id);
 
   const lanes: BoardSwimlane[] = [];
+  // A scoped board (single project) always shows its lane, even when empty;
+  // the multi-project board hides lanes with no active work.
+  const allowEmptyLanes = Boolean(scopedProjectId);
   const pushProjectLane = (projectId: string) => {
     const laneIssues = issuesByProject.get(projectId) ?? [];
+    const activeCount = activeIssueCount(laneIssues);
+    if (!allowEmptyLanes && activeCount === 0) return;
     const columns = emptyColumns(visibleStatuses);
     for (const status of visibleStatuses) {
       columns[status] = sortIssues(
@@ -78,7 +91,7 @@ export function buildProjectSwimlanes(
       projectId,
       project: projectMap.get(projectId) ?? null,
       columns,
-      issueCount: laneIssues.length,
+      issueCount: activeCount,
     });
   };
 
@@ -91,7 +104,7 @@ export function buildProjectSwimlanes(
       .sort();
     for (const projectId of unknownProjectIds) pushProjectLane(projectId);
 
-    if (noProjectIssues.length > 0) {
+    if (activeIssueCount(noProjectIssues) > 0) {
       const columns = emptyColumns(visibleStatuses);
       for (const status of visibleStatuses) {
         columns[status] = sortIssues(
@@ -105,7 +118,7 @@ export function buildProjectSwimlanes(
         projectId: null,
         project: null,
         columns,
-        issueCount: noProjectIssues.length,
+        issueCount: activeIssueCount(noProjectIssues),
       });
     }
   }

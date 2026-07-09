@@ -74,6 +74,39 @@ describe("board swimlanes", () => {
     expect(lanes[2]!.columns.todo).toEqual(["i-3"]);
   });
 
+  it("hides lanes with no active work and counts only active issues", () => {
+    const lanes = buildProjectSwimlanes(
+      [
+        issue("d-1", "done", "p-term", 10),
+        issue("c-1", "cancelled", "p-term", 20),
+        issue("a-1", "todo", "p-act", 10),
+        issue("a-2", "in_progress", "p-act", 20),
+        issue("np-done", "done", null, 30),
+      ],
+      [project("p-term", "AllDone", 10), project("p-act", "Active", 20)],
+      ["todo", "in_progress", "done"],
+      "position",
+      "asc",
+    );
+
+    // p-term (only done/cancelled) and the no-project lane (only done) are hidden.
+    expect(lanes.map((lane) => lane.id)).toEqual(["project:p-act"]);
+    // Badge reflects active issues only, not the done ones.
+    expect(lanes[0]!.issueCount).toBe(2);
+  });
+
+  it("keeps a scoped project lane even when it has no active work", () => {
+    const lanes = buildProjectSwimlanes(
+      [issue("d-1", "done", "p-term", 10)],
+      [project("p-term", "AllDone", 10)],
+      ["todo", "done"],
+      "position",
+      "asc",
+      "p-term",
+    );
+    expect(lanes.map((lane) => lane.id)).toEqual(["project:p-term"]);
+  });
+
   it("renumbers reordered projects with stable unique integer positions", () => {
     expect(renumberProjectPositions(["p-3", "p-1", "p-2"])).toEqual([
       { id: "p-3", position: 1 },
