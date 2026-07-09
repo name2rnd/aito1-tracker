@@ -30,6 +30,7 @@ type ProjectResponse struct {
 	UpdatedAt   string  `json:"updated_at"`
 	IssueCount  int64   `json:"issue_count"`
 	DoneCount   int64   `json:"done_count"`
+	Position    int32   `json:"position"`
 	// ResourceCount is a breadcrumb pointing at the sub-collection at
 	// /api/projects/{id}/resources. Resources themselves stay out of this
 	// payload to keep parent metadata and child collections separate; clients
@@ -50,6 +51,7 @@ func projectToResponse(p db.Project) ProjectResponse {
 		LeadID:      uuidToPtr(p.LeadID),
 		CreatedAt:   timestampToString(p.CreatedAt),
 		UpdatedAt:   timestampToString(p.UpdatedAt),
+		Position:    p.Position,
 	}
 }
 
@@ -77,6 +79,7 @@ type CreateProjectRequest struct {
 	Priority    string                                `json:"priority"`
 	LeadType    *string                               `json:"lead_type"`
 	LeadID      *string                               `json:"lead_id"`
+	Position    *int32                                `json:"position"`
 	Resources   []CreateProjectResourceRequestPayload `json:"resources,omitempty"`
 }
 
@@ -98,6 +101,16 @@ type UpdateProjectRequest struct {
 	Priority    *string `json:"priority"`
 	LeadType    *string `json:"lead_type"`
 	LeadID      *string `json:"lead_id"`
+	Position    *int32  `json:"position"`
+}
+
+type ReorderProjectPosition struct {
+	ID       string `json:"id"`
+	Position int32  `json:"position"`
+}
+
+type ReorderProjectsRequest struct {
+	Projects []ReorderProjectPosition `json:"projects"`
 }
 
 func (h *Handler) ListProjects(w http.ResponseWriter, r *http.Request) {
@@ -249,6 +262,9 @@ func (h *Handler) CreateProject(w http.ResponseWriter, r *http.Request) {
 		LeadID:      leadID,
 		Priority:    priority,
 	}
+	if req.Position != nil {
+		createParams.Position = pgtype.Int4{Int32: *req.Position, Valid: true}
+	}
 
 	// Without resources, keep the simple non-tx path.
 	if len(req.Resources) == 0 {
@@ -389,6 +405,9 @@ func (h *Handler) UpdateProject(w http.ResponseWriter, r *http.Request) {
 	if req.Priority != nil {
 		params.Priority = pgtype.Text{String: *req.Priority, Valid: true}
 	}
+	if req.Position != nil {
+		params.Position = pgtype.Int4{Int32: *req.Position, Valid: true}
+	}
 	if _, ok := rawFields["description"]; ok {
 		if req.Description != nil {
 			params.Description = pgtype.Text{String: *req.Description, Valid: true}
@@ -430,6 +449,90 @@ func (h *Handler) UpdateProject(w http.ResponseWriter, r *http.Request) {
 	resp.ResourceCount = h.loadProjectResourceCount(r.Context(), project.ID)
 	h.publish(protocol.EventProjectUpdated, workspaceID, "member", userID, map[string]any{"project": resp})
 	writeJSON(w, http.StatusOK, resp)
+}
+
+func (h *Handler) ReorderProjects(w http.ResponseWriter, r *http.Request) {
+	workspaceID := h.resolveWorkspaceID(r)
+	wsUUID, ok := parseUUIDOrBadRequest(w, workspaceID, "workspace id")
+	if !ok {
+		return
+	}
+	userID, ok := requireUserID(w, r)
+	if !ok {
+		return
+	}
+	var req ReorderProjectsRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if len(req.Projects) == 0 {
+		writeJSON(w, http.StatusOK, map[string]any{"projects": []ProjectResponse{}, "total": 0})
+		return
+	}
+
+	seenIDs := make(map[string]struct{}, len(req.Projects))
+	seenPositions := make(map[int32]struct{}, len(req.Projects))
+	updates := make([]db.UpdateProjectPositionInWorkspaceParams, len(req.Projects))
+	for i, item := range req.Projects {
+		if item.Position <= 0 {
+			writeError(w, http.StatusBadRequest, "projects["+strconv.Itoa(i)+"].position must be positive")
+			return
+		}
+		if _, exists := seenIDs[item.ID]; exists {
+			writeError(w, http.StatusBadRequest, "projects["+strconv.Itoa(i)+"].id is duplicated")
+			return
+		}
+		if _, exists := seenPositions[item.Position]; exists {
+			writeError(w, http.StatusBadRequest, "projects["+strconv.Itoa(i)+"].position is duplicated")
+			return
+		}
+		idUUID, ok := parseUUIDOrBadRequest(w, item.ID, "projects["+strconv.Itoa(i)+"].id")
+		if !ok {
+			return
+		}
+		seenIDs[item.ID] = struct{}{}
+		seenPositions[item.Position] = struct{}{}
+		updates[i] = db.UpdateProjectPositionInWorkspaceParams{
+			ID:          idUUID,
+			WorkspaceID: wsUUID,
+			Position:    item.Position,
+		}
+	}
+
+	tx, err := h.TxStarter.Begin(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to start transaction")
+		return
+	}
+	defer tx.Rollback(r.Context())
+	qtx := h.Queries.WithTx(tx)
+
+	projects := make([]db.Project, 0, len(updates))
+	for _, update := range updates {
+		project, err := qtx.UpdateProjectPositionInWorkspace(r.Context(), update)
+		if err != nil {
+			writeError(w, http.StatusNotFound, "project not found")
+			return
+		}
+		projects = append(projects, project)
+	}
+	if err := tx.Commit(r.Context()); err != nil {
+		if isUniqueViolation(err) {
+			writeError(w, http.StatusConflict, "project positions must be unique")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "failed to reorder projects")
+		return
+	}
+
+	resp := make([]ProjectResponse, len(projects))
+	for i, project := range projects {
+		resp[i] = projectToResponse(project)
+		resp[i].ResourceCount = h.loadProjectResourceCount(r.Context(), project.ID)
+		h.publish(protocol.EventProjectUpdated, workspaceID, "member", userID, map[string]any{"project": resp[i]})
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"projects": resp, "total": len(resp)})
 }
 
 func (h *Handler) DeleteProject(w http.ResponseWriter, r *http.Request) {
@@ -580,7 +683,7 @@ func buildProjectSearchQuery(phrase string, terms []string, includeClosed bool) 
 
 	query := fmt.Sprintf(`SELECT p.id, p.workspace_id, p.title, p.description, p.icon,
 		p.status, p.priority, p.lead_type, p.lead_id,
-		p.created_at, p.updated_at,
+		p.created_at, p.updated_at, p.position,
 		COUNT(*) OVER() AS total_count,
 		%s AS match_source
 	FROM project p
@@ -666,6 +769,7 @@ func (h *Handler) SearchProjects(w http.ResponseWriter, r *http.Request) {
 			&row.project.LeadID,
 			&row.project.CreatedAt,
 			&row.project.UpdatedAt,
+			&row.project.Position,
 			&row.totalCount,
 			&row.matchSource,
 		); err != nil {

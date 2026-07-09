@@ -3,7 +3,7 @@ SELECT * FROM project
 WHERE workspace_id = $1
   AND (sqlc.narg('status')::text IS NULL OR status = sqlc.narg('status'))
   AND (sqlc.narg('priority')::text IS NULL OR priority = sqlc.narg('priority'))
-ORDER BY created_at DESC;
+ORDER BY position ASC, created_at ASC;
 
 -- name: GetProject :one
 SELECT * FROM project
@@ -16,9 +16,13 @@ WHERE id = $1 AND workspace_id = $2;
 -- name: CreateProject :one
 INSERT INTO project (
     workspace_id, title, description, icon, status,
-    lead_type, lead_id, priority
+    lead_type, lead_id, priority, position
 ) VALUES (
-    $1, $2, $3, $4, $5, $6, $7, $8
+    $1, $2, $3, $4, $5, $6, $7, $8,
+    COALESCE(
+        sqlc.narg('position')::integer,
+        (SELECT COALESCE(MAX(position), 0)::integer + 1 FROM project WHERE workspace_id = $1)
+    )
 ) RETURNING *;
 
 -- name: UpdateProject :one
@@ -28,10 +32,18 @@ UPDATE project SET
     icon = sqlc.narg('icon'),
     status = COALESCE(sqlc.narg('status'), status),
     priority = COALESCE(sqlc.narg('priority'), priority),
+    position = COALESCE(sqlc.narg('position')::integer, position),
     lead_type = sqlc.narg('lead_type'),
     lead_id = sqlc.narg('lead_id'),
     updated_at = now()
 WHERE id = $1
+RETURNING *;
+
+-- name: UpdateProjectPositionInWorkspace :one
+UPDATE project SET
+    position = $3,
+    updated_at = now()
+WHERE id = $1 AND workspace_id = $2
 RETURNING *;
 
 -- name: DeleteProject :exec

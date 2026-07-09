@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"testing"
 )
 
@@ -342,3 +343,68 @@ func TestCreateProjectRollsBackOnInvalidResource(t *testing.T) {
 	}
 }
 
+func TestReorderProjectsPersistsPositionOrder(t *testing.T) {
+	var projects []ProjectResponse
+	defer func() {
+		for _, project := range projects {
+			req := newRequest("DELETE", "/api/projects/"+project.ID, nil)
+			req = withURLParam(req, "id", project.ID)
+			testHandler.DeleteProject(httptest.NewRecorder(), req)
+		}
+	}()
+
+	for _, title := range []string{"Reorder first", "Reorder second", "Reorder third"} {
+		w := httptest.NewRecorder()
+		req := newRequest("POST", "/api/projects?workspace_id="+testWorkspaceID, map[string]any{
+			"title": title,
+		})
+		testHandler.CreateProject(w, req)
+		if w.Code != http.StatusCreated {
+			t.Fatalf("CreateProject %q: expected 201, got %d: %s", title, w.Code, w.Body.String())
+		}
+		var project ProjectResponse
+		if err := json.NewDecoder(w.Body).Decode(&project); err != nil {
+			t.Fatalf("decode CreateProject %q: %v", title, err)
+		}
+		projects = append(projects, project)
+	}
+
+	w := httptest.NewRecorder()
+	req := newRequest("PATCH", "/api/projects/reorder", map[string]any{
+		"projects": []map[string]any{
+			{"id": projects[2].ID, "position": 1},
+			{"id": projects[0].ID, "position": 2},
+			{"id": projects[1].ID, "position": 3},
+		},
+	})
+	testHandler.ReorderProjects(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("ReorderProjects: expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	w = httptest.NewRecorder()
+	req = newRequest("GET", "/api/projects?workspace_id="+testWorkspaceID, nil)
+	testHandler.ListProjects(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("ListProjects: expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	var list struct {
+		Projects []ProjectResponse `json:"projects"`
+	}
+	if err := json.NewDecoder(w.Body).Decode(&list); err != nil {
+		t.Fatalf("decode ListProjects: %v", err)
+	}
+
+	got := make([]string, 0, 3)
+	for _, project := range list.Projects {
+		for _, created := range projects {
+			if project.ID == created.ID {
+				got = append(got, project.ID)
+			}
+		}
+	}
+	want := []string{projects[2].ID, projects[0].ID, projects[1].ID}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("ListProjects order = %v, want %v", got, want)
+	}
+}

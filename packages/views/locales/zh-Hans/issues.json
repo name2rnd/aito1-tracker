@@ -84,7 +84,11 @@
     "hide_column": "隐藏列",
     "show_column": "显示列",
     "add_issue_tooltip": "新建 issue",
-    "empty_column": "无 issue"
+    "empty_column": "无 issue",
+    "no_project_lane": "无项目",
+    "unknown_project_lane": "未知项目",
+    "drag_project_handle": "调整项目顺序",
+    "reorder_projects_failed": "调整项目顺序失败"
   },
   "detail": {
     "not_found": "这个 issue 不存在或已在该工作区被删除。",

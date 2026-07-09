@@ -189,7 +189,7 @@ export const DraggableBoardCard = memo(function DraggableBoardCard({ issue, chil
     isDragging,
   } = useSortable({
     id: issue.id,
-    data: { status: issue.status },
+    data: { type: "issue", status: issue.status, projectId: issue.project_id },
     animateLayoutChanges,
   });
 

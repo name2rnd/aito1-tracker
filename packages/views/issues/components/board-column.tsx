@@ -23,6 +23,7 @@ import { useT } from "../../i18n";
 
 export function BoardColumn({
   status,
+  columnId,
   issueIds,
   issueMap,
   childProgressMap,
@@ -31,6 +32,7 @@ export function BoardColumn({
   projectId,
 }: {
   status: IssueStatus;
+  columnId?: string;
   issueIds: string[];
   issueMap: Map<string, Issue>;
   childProgressMap?: Map<string, ChildProgress>;
@@ -40,7 +42,7 @@ export function BoardColumn({
   projectId?: string;
 }) {
   const cfg = STATUS_CONFIG[status];
-  const { setNodeRef, isOver } = useDroppable({ id: status });
+  const { setNodeRef, isOver } = useDroppable({ id: columnId ?? status });
   const viewStoreApi = useViewStoreApi();
   const { t } = useT("issues");
 

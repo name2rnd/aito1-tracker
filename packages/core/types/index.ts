@@ -59,6 +59,8 @@ export type {
   ProjectPriority,
   CreateProjectRequest,
   UpdateProjectRequest,
+  ReorderProjectPosition,
+  ReorderProjectsRequest,
   ListProjectsResponse,
   ProjectResource,
   ProjectResourceType,

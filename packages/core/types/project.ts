@@ -16,6 +16,7 @@ export interface Project {
   updated_at: string;
   issue_count: number;
   done_count: number;
+  position: number;
   resource_count: number;
 }
 
@@ -27,6 +28,7 @@ export interface CreateProjectRequest {
   priority?: ProjectPriority;
   lead_type?: "member" | "agent";
   lead_id?: string;
+  position?: number;
   // Resources to attach in the same transaction as the project. Server returns
   // 4xx (and rolls back) if any one is invalid or duplicate.
   resources?: CreateProjectResourceRequest[];
@@ -40,11 +42,21 @@ export interface UpdateProjectRequest {
   priority?: ProjectPriority;
   lead_type?: "member" | "agent" | null;
   lead_id?: string | null;
+  position?: number;
 }
 
 export interface ListProjectsResponse {
   projects: Project[];
   total: number;
+}
+
+export interface ReorderProjectPosition {
+  id: string;
+  position: number;
+}
+
+export interface ReorderProjectsRequest {
+  projects: ReorderProjectPosition[];
 }
 
 // ProjectResource is a typed pointer from a project to an external resource.

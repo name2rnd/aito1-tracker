@@ -55,6 +55,7 @@ import type {
   Project,
   CreateProjectRequest,
   UpdateProjectRequest,
+  ReorderProjectsRequest,
   ListProjectsResponse,
   ProjectResource,
   CreateProjectResourceRequest,
@@ -1078,6 +1079,13 @@ export class ApiClient {
   async updateProject(id: string, data: UpdateProjectRequest): Promise<Project> {
     return this.fetch(`/api/projects/${id}`, {
       method: "PUT",
+      body: JSON.stringify(data),
+    });
+  }
+
+  async reorderProjects(data: ReorderProjectsRequest): Promise<ListProjectsResponse> {
+    return this.fetch("/api/projects/reorder", {
+      method: "PATCH",
       body: JSON.stringify(data),
     });
   }

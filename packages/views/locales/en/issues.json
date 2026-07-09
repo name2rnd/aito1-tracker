@@ -85,7 +85,11 @@
     "hide_column": "Hide column",
     "show_column": "Show column",
     "add_issue_tooltip": "Add issue",
-    "empty_column": "No issues"
+    "empty_column": "No issues",
+    "no_project_lane": "No project",
+    "unknown_project_lane": "Unknown project",
+    "drag_project_handle": "Reorder project",
+    "reorder_projects_failed": "Failed to reorder projects"
   },
   "detail": {
     "not_found": "This issue does not exist or has been deleted in this workspace.",

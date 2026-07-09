@@ -2,7 +2,13 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api";
 import { projectKeys } from "./queries";
 import { useWorkspaceId } from "../hooks";
-import type { Project, CreateProjectRequest, UpdateProjectRequest, ListProjectsResponse } from "../types";
+import type {
+  Project,
+  CreateProjectRequest,
+  UpdateProjectRequest,
+  ListProjectsResponse,
+  ReorderProjectPosition,
+} from "../types";
 
 export function useCreateProject() {
   const qc = useQueryClient();
@@ -46,6 +52,49 @@ export function useUpdateProject() {
     },
     onSettled: (_data, _err, vars) => {
       qc.invalidateQueries({ queryKey: projectKeys.detail(wsId, vars.id) });
+      qc.invalidateQueries({ queryKey: projectKeys.list(wsId) });
+    },
+  });
+}
+
+export function useReorderProjects() {
+  const qc = useQueryClient();
+  const wsId = useWorkspaceId();
+  return useMutation({
+    mutationFn: (projects: ReorderProjectPosition[]) =>
+      api.reorderProjects({ projects }),
+    onMutate: async (projects) => {
+      await qc.cancelQueries({ queryKey: projectKeys.list(wsId) });
+      const prevList = qc.getQueryData<ListProjectsResponse>(projectKeys.list(wsId));
+      const positionById = new Map(projects.map((p) => [p.id, p.position]));
+
+      qc.setQueryData<ListProjectsResponse>(projectKeys.list(wsId), (old) => {
+        if (!old) return old;
+        const nextProjects = old.projects
+          .map((project) =>
+            positionById.has(project.id)
+              ? { ...project, position: positionById.get(project.id)! }
+              : project,
+          )
+          .sort((a, b) => a.position - b.position || a.created_at.localeCompare(b.created_at));
+        return { ...old, projects: nextProjects };
+      });
+
+      for (const project of projects) {
+        qc.setQueryData<Project>(projectKeys.detail(wsId, project.id), (old) =>
+          old ? { ...old, position: project.position } : old,
+        );
+      }
+
+      return { prevList };
+    },
+    onSuccess: (data) => {
+      qc.setQueryData<ListProjectsResponse>(projectKeys.list(wsId), data);
+    },
+    onError: (_err, _vars, ctx) => {
+      if (ctx?.prevList) qc.setQueryData(projectKeys.list(wsId), ctx.prevList);
+    },
+    onSettled: () => {
       qc.invalidateQueries({ queryKey: projectKeys.list(wsId) });
     },
   });
