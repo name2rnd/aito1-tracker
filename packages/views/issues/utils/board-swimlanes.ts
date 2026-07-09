@@ -126,6 +126,17 @@ export function buildProjectSwimlanes(
   return lanes;
 }
 
-export function renumberProjectPositions(projectIds: string[]): { id: string; position: number }[] {
-  return projectIds.map((id, index) => ({ id, position: index + 1 }));
+// Reassign the dragged projects' own position slots in the new order, leaving
+// hidden projects (filtered off the board) untouched on their existing positions.
+// Renumbering from 1..N would collide with hidden projects already occupying those
+// positions (UNIQUE(workspace_id, position) → 409) — the board only shows a subset.
+export function reorderProjectPositions(
+  orderedProjectIds: string[],
+  positionById: Map<string, number>,
+): { id: string; position: number }[] {
+  const slots = orderedProjectIds
+    .map((id) => positionById.get(id))
+    .filter((position): position is number => position !== undefined)
+    .sort((a, b) => a - b);
+  return orderedProjectIds.map((id, index) => ({ id, position: slots[index]! }));
 }

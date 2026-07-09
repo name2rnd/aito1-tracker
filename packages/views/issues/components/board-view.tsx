@@ -42,7 +42,7 @@ import {
   NO_PROJECT_LANE_ID,
   boardColumnId,
   buildProjectSwimlanes,
-  renumberProjectPositions,
+  reorderProjectPositions,
   type BoardSwimlane,
 } from "../utils/board-swimlanes";
 import { StatusIcon } from "./status-icon";
@@ -306,8 +306,14 @@ export function BoardView({
         if (oldIndex === -1 || newIndex === -1 || oldIndex === newIndex) return;
 
         const reorderedLaneIds = arrayMove(projectLaneIds, oldIndex, newIndex);
-        const updates = renumberProjectPositions(
+        const positionById = new Map(
+          lanes
+            .filter((lane) => lane.project)
+            .map((lane) => [lane.projectId as string, lane.project!.position]),
+        );
+        const updates = reorderProjectPositions(
           reorderedLaneIds.map((laneId) => laneId.replace(/^project:/, "")),
+          positionById,
         );
         reorderProjects.mutate(updates, {
           onError: () => toast.error(t(($) => $.board.reorder_projects_failed)),

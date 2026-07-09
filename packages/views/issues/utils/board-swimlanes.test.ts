@@ -3,7 +3,7 @@ import type { Issue, Project } from "@multica/core/types";
 import {
   NO_PROJECT_LANE_ID,
   buildProjectSwimlanes,
-  renumberProjectPositions,
+  reorderProjectPositions,
 } from "./board-swimlanes";
 
 function issue(id: string, status: Issue["status"], projectId: string | null, position: number): Issue {
@@ -107,11 +107,18 @@ describe("board swimlanes", () => {
     expect(lanes.map((lane) => lane.id)).toEqual(["project:p-term"]);
   });
 
-  it("renumbers reordered projects with stable unique integer positions", () => {
-    expect(renumberProjectPositions(["p-3", "p-1", "p-2"])).toEqual([
-      { id: "p-3", position: 1 },
-      { id: "p-1", position: 2 },
-      { id: "p-2", position: 3 },
+  it("reassigns the dragged projects' own position slots in the new order", () => {
+    // Only 3 of many projects are visible; their slots are 10/16/17, not 1..N.
+    // Renumbering from 1 would collide with hidden projects on positions 1..9.
+    const positionById = new Map([
+      ["p-1", 10],
+      ["p-2", 16],
+      ["p-3", 17],
+    ]);
+    expect(reorderProjectPositions(["p-3", "p-1", "p-2"], positionById)).toEqual([
+      { id: "p-3", position: 10 },
+      { id: "p-1", position: 16 },
+      { id: "p-2", position: 17 },
     ]);
   });
 });
