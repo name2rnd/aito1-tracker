@@ -70,6 +70,13 @@
       "description": "控制 Multica 在后台时是否显示操作系统的原生通知横幅。",
       "label": "显示系统通知",
       "hint": "App 未获得焦点时，新的收件箱条目通过操作系统弹出通知横幅。"
+    },
+    "delivery": {
+      "title": "通知渠道",
+      "description": "「任务待评审」通知的送达渠道。",
+      "label": "浏览器通知（代替 Telegram）",
+      "hint": "任务就绪时通过浏览器横幅通知，而不是 Telegram 消息。需要在浏览器中打开 Multica。",
+      "permission_denied": "浏览器通知被阻止。请为本站点允许通知后重试。"
     }
   },
   "tokens": {

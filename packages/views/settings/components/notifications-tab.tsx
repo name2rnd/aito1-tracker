@@ -45,6 +45,25 @@ export function NotificationsTab() {
 
   const systemEnabled = preferences.system_notifications !== "muted";
 
+  // Delivery channel: where "task ready for review" notifications land. Default
+  // is Telegram (AITO1 brain). Switching to browser needs OS permission —
+  // otherwise `new Notification` is silently dropped.
+  const browserChannel = preferences.delivery_channel === "browser";
+
+  const handleChannelChange = async (toBrowser: boolean) => {
+    if (toBrowser && typeof Notification !== "undefined" && Notification.permission !== "granted") {
+      const perm = await Notification.requestPermission();
+      if (perm !== "granted") {
+        toast.error(t(($) => $.notifications.delivery.permission_denied));
+        return;
+      }
+    }
+    mutation.mutate(
+      { ...preferences, delivery_channel: toBrowser ? "browser" : "telegram" },
+      { onError: () => toast.error(t(($) => $.notifications.toast_failed)) },
+    );
+  };
+
   return (
     <div className="space-y-8">
       <section className="space-y-4">
@@ -101,6 +120,32 @@ export function NotificationsTab() {
               <Switch
                 checked={systemEnabled}
                 onCheckedChange={(checked) => handleToggle("system_notifications", checked)}
+              />
+            </div>
+          </CardContent>
+        </Card>
+      </section>
+
+      <section className="space-y-4">
+        <div>
+          <h2 className="text-sm font-semibold">{t(($) => $.notifications.delivery.title)}</h2>
+          <p className="text-sm text-muted-foreground mt-1">
+            {t(($) => $.notifications.delivery.description)}
+          </p>
+        </div>
+
+        <Card>
+          <CardContent>
+            <div className="flex items-center justify-between">
+              <div className="space-y-0.5 pr-4">
+                <p className="text-sm font-medium">{t(($) => $.notifications.delivery.label)}</p>
+                <p className="text-xs text-muted-foreground">
+                  {t(($) => $.notifications.delivery.hint)}
+                </p>
+              </div>
+              <Switch
+                checked={browserChannel}
+                onCheckedChange={(checked) => handleChannelChange(checked)}
               />
             </div>
           </CardContent>
