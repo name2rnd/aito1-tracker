@@ -32,19 +32,6 @@ var validNotifValues = map[string]bool{
 	"muted": true,
 }
 
-// deliveryChannelKey is a special preference key. Unlike the group toggles
-// (all|muted) it selects WHERE "task ready for review" notifications are
-// delivered — "telegram" (AITO1 brain) or "browser" (native OS banner fired by
-// the web app). Stored in the same prefs map so the AITO1 brain, which shares
-// this Postgres DB, reads it to gate its Telegram channel.
-const deliveryChannelKey = "delivery_channel"
-
-// validDeliveryChannels is the set of allowed values for deliveryChannelKey.
-var validDeliveryChannels = map[string]bool{
-	"telegram": true,
-	"browser":  true,
-}
-
 func (h *Handler) GetNotificationPreferences(w http.ResponseWriter, r *http.Request) {
 	userID, ok := requireUserID(w, r)
 	if !ok {
@@ -103,13 +90,6 @@ func (h *Handler) UpdateNotificationPreferences(w http.ResponseWriter, r *http.R
 	}
 
 	for k, v := range req.Preferences {
-		if k == deliveryChannelKey {
-			if !validDeliveryChannels[v] {
-				writeError(w, http.StatusBadRequest, "invalid delivery_channel value: "+v)
-				return
-			}
-			continue
-		}
 		if !validNotifGroups[k] {
 			writeError(w, http.StatusBadRequest, "invalid preference group: "+k)
 			return

@@ -70,13 +70,6 @@
       "description": "Control native OS notification banners shown when Multica is in the background.",
       "label": "Show system notifications",
       "hint": "Show a banner from your operating system for new inbox items when the app isn't focused."
-    },
-    "delivery": {
-      "title": "Delivery channel",
-      "description": "Where \"task ready for review\" notifications are delivered.",
-      "label": "Browser notifications (instead of Telegram)",
-      "hint": "Get a browser banner when a task is ready, instead of a Telegram message. Works while Multica is open in the browser.",
-      "permission_denied": "Browser notifications are blocked. Allow notifications for this site, then try again."
     }
   },
   "tokens": {

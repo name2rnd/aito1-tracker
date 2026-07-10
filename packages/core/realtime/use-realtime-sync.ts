@@ -287,16 +287,10 @@ export function useRealtimeSync(
       // cached value if present and otherwise fetches once, populating the
       // cache for subsequent events. On network failure we fall through to
       // the default ("all") rather than swallow the banner entirely.
-      // `systemMuted` gates the desktop inbox banner (all inbox types).
-      // `channel` selects where "task ready for review" lands — "browser" fires
-      // a web banner here; "telegram" leaves it to the AITO1 brain.
-      let systemMuted = false;
-      let channel = "telegram";
       if (wsId) {
         try {
           const prefData = await qc.ensureQueryData(notificationPreferenceOptions(wsId));
-          systemMuted = prefData?.preferences?.system_notifications === "muted";
-          channel = prefData?.preferences?.delivery_channel ?? "telegram";
+          if (prefData?.preferences?.system_notifications === "muted") return;
         } catch {
           // Fall through with default behavior.
         }
@@ -321,33 +315,6 @@ export function useRealtimeSync(
           };
         }
       ).desktopAPI;
-
-      // Web delivery of "task ready for review" (status → in_review): when the
-      // user picked the browser channel, fire a native banner straight from the
-      // web app — the AITO1 brain skips its Telegram message in that case. Only
-      // for that one transition (not every inbox item), mirroring the brain's
-      // Telegram trigger. Desktop keeps using desktopAPI below. Independent of
-      // the system-notifications mute — the channel toggle is an explicit opt-in.
-      // Permission is requested in Settings when enabling the channel; here we
-      // only fire when already granted (never prompt from a background event).
-      if (
-        !desktopAPI &&
-        channel === "browser" &&
-        item.type === "status_changed" &&
-        item.details?.to === "in_review" &&
-        typeof Notification !== "undefined" &&
-        Notification.permission === "granted"
-      ) {
-        const targetSlug = slug;
-        const notification = new Notification(item.title, { body: item.body ?? "" });
-        notification.onclick = () => {
-          window.focus();
-          window.location.href = `/${targetSlug}/inbox`;
-        };
-      }
-
-      // Desktop inbox banner (all inbox types), gated by the mute preference.
-      if (systemMuted) return;
       // `issueKey` matches the inbox page's URL selector (issue id when the
       // item is attached to an issue, otherwise the inbox item id). `itemId`
       // is the inbox row's own id, needed to fire markInboxRead on click.

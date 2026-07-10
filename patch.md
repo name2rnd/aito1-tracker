@@ -1554,37 +1554,6 @@ upstream не затронут.
 
 ---
 
-### Патч 47 — канал доставки «задача готова»: Telegram ⇄ Browser
-
-**Зачем:** «готова к ревью» уходила только в Telegram (неудобно). Тумблер в Settings
-переключает канал на браузерный пуш (нативный OS-баннер, пока вкладка multica открыта).
-
-**Файлы (multica):**
-- `server/internal/handler/notification_preference.go` — валидация PUT принимает
-  спец-ключ `delivery_channel` (`telegram|browser`) в том же prefs-JSONB (остальные ключи
-  по-прежнему `all|muted`). **Требует пересборки `multica-server` + codesign.**
-- `packages/core/types/notification-preference.ts` (+ `types/index.ts`) — тип
-  `DeliveryChannel`, поле `delivery_channel?` в `NotificationPreferences`.
-- `packages/core/realtime/use-realtime-sync.ts` — в хендлере `inbox:new` web-fallback:
-  при `channel=browser` и `type=status_changed`/`details.to=in_review` и `Notification.permission==granted`
-  → `new Notification` (desktop по-прежнему через `desktopAPI`; независимо от `system_notifications` mute).
-- `packages/views/settings/components/notifications-tab.tsx` — секция «Delivery channel»,
-  тумблер запрашивает OS-permission при включении.
-- `packages/views/locales/{en,zh-Hans}/settings.json` — ключи `notifications.delivery.*`.
-
-**Правки вне репо (brain, arcadia `taxi/ai/aito1`):** `brain/storage/repos/settings.py`
-(`notification_delivery_channel()` читает общую `notification_preference`), гейт
-`executor_done`-ТГ в `brain/listener/notifications.py`, doc `docs/notifications.md`.
-Brain и multica делят один Postgres → общий источник тумблера.
-
-**Сборка/деплой:** `./scripts/aito1-deploy.sh frontend` + `go build cmd/server` →
-**codesign** `multica-server` → рестарт backend + brain.
-
-**Если конфликт:** валидация — аддитивный спец-кейс до общей проверки; фронт — новое поле
-типа + аддитивный блок в `inbox:new` + новая секция Settings; upstream не затронут.
-
----
-
 ## Связанные правки **вне** этого репо (для полноты картины)
 
 Эти правки лежат в других репо/файлах, но без них наш форк работает не полностью. Они описаны отдельно — здесь только указатели:
