@@ -89,7 +89,9 @@
     "no_project_lane": "No project",
     "unknown_project_lane": "Unknown project",
     "drag_project_handle": "Reorder project",
-    "reorder_projects_failed": "Failed to reorder projects"
+    "reorder_projects_failed": "Failed to reorder projects",
+    "collapse_project": "Collapse project",
+    "expand_project": "Expand project"
   },
   "detail": {
     "not_found": "This issue does not exist or has been deleted in this workspace.",

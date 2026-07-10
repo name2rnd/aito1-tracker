@@ -88,7 +88,9 @@
     "no_project_lane": "无项目",
     "unknown_project_lane": "未知项目",
     "drag_project_handle": "调整项目顺序",
-    "reorder_projects_failed": "调整项目顺序失败"
+    "reorder_projects_failed": "调整项目顺序失败",
+    "collapse_project": "折叠项目",
+    "expand_project": "展开项目"
   },
   "detail": {
     "not_found": "这个 issue 不存在或已在该工作区被删除。",

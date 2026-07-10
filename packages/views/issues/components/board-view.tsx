@@ -21,7 +21,13 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { Eye, GripVertical, MoreHorizontal } from "lucide-react";
+import {
+  ChevronDown,
+  ChevronRight,
+  Eye,
+  GripVertical,
+  MoreHorizontal,
+} from "lucide-react";
 import { toast } from "sonner";
 import { useQuery } from "@tanstack/react-query";
 import type { Issue, IssueStatus } from "@multica/core/types";
@@ -57,6 +63,42 @@ type LaneColumns = Record<string, Record<IssueStatus, string[]>>;
 type IssueContainer = { laneId: string; status: IssueStatus };
 type SortableAttributes = ReturnType<typeof useSortable>["attributes"];
 type SortableListeners = ReturnType<typeof useSortable>["listeners"];
+
+const COLLAPSED_LANES_LS_KEY = "board:collapsed-project-lanes";
+
+/** Per-project свёрнутость блоков доски, persist в localStorage (переживает reload). */
+function useCollapsedLanes() {
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+
+  // localStorage — client-only: читаем после mount, чтобы не ловить SSR/hydration mismatch.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const raw = localStorage.getItem(COLLAPSED_LANES_LS_KEY);
+      if (raw) setCollapsed(new Set(JSON.parse(raw) as string[]));
+    } catch {
+      // повреждённое хранилище — стартуем с пустого набора
+    }
+  }, []);
+
+  const toggle = useCallback((laneId: string) => {
+    setCollapsed((prev) => {
+      const next = new Set(prev);
+      if (next.has(laneId)) next.delete(laneId);
+      else next.add(laneId);
+      if (typeof window !== "undefined") {
+        try {
+          localStorage.setItem(COLLAPSED_LANES_LS_KEY, JSON.stringify([...next]));
+        } catch {
+          // quota/serialization — состояние всё равно живёт в памяти до конца сессии
+        }
+      }
+      return next;
+    });
+  }, []);
+
+  return { collapsed, toggle };
+}
 
 function buildLaneColumns(lanes: BoardSwimlane[]): LaneColumns {
   const columns: LaneColumns = {};
@@ -158,6 +200,7 @@ export function BoardView({
     : undefined;
   const { data: projects = [] } = useQuery(projectListOptions(wsId));
   const reorderProjects = useReorderProjects();
+  const { collapsed: collapsedLanes, toggle: toggleLaneCollapse } = useCollapsedLanes();
 
   const lanes = useMemo(
     () =>
@@ -407,6 +450,8 @@ export function BoardView({
                 showHiddenColumns={laneIndex === 0 && hiddenStatuses.length > 0}
                 hiddenStatuses={hiddenStatuses}
                 projectId={lane.projectId ?? projectId}
+                collapsed={collapsedLanes.has(lane.id)}
+                onToggleCollapse={toggleLaneCollapse}
               />
             ))}
           </div>
@@ -437,6 +482,8 @@ function ProjectSwimlane({
   showHiddenColumns,
   hiddenStatuses,
   projectId,
+  collapsed,
+  onToggleCollapse,
 }: {
   lane: BoardSwimlane;
   issueColumns: Record<IssueStatus, string[]>;
@@ -448,6 +495,8 @@ function ProjectSwimlane({
   showHiddenColumns: boolean;
   hiddenStatuses: IssueStatus[];
   projectId?: string | null;
+  collapsed: boolean;
+  onToggleCollapse: (laneId: string) => void;
 }) {
   const {
     attributes,
@@ -477,28 +526,32 @@ function ProjectSwimlane({
         lane={lane}
         attributes={attributes}
         listeners={listeners}
+        collapsed={collapsed}
+        onToggleCollapse={onToggleCollapse}
       />
-      <div className="flex gap-4">
-        {visibleStatuses.map((status) => (
-          <BoardLaneColumn
-            key={status}
-            laneId={lane.id}
-            status={status}
-            issueIds={issueColumns[status] ?? []}
-            issueMap={issueMap}
-            childProgressMap={childProgressMap}
-            myIssuesOpts={myIssuesOpts}
-            projectId={projectId ?? undefined}
-            showLoadMoreFooter={showLoadMoreFooter}
-          />
-        ))}
-        {showHiddenColumns && (
-          <HiddenColumnsPanel
-            hiddenStatuses={hiddenStatuses}
-            myIssuesOpts={myIssuesOpts}
-          />
-        )}
-      </div>
+      {!collapsed && (
+        <div className="flex gap-4">
+          {visibleStatuses.map((status) => (
+            <BoardLaneColumn
+              key={status}
+              laneId={lane.id}
+              status={status}
+              issueIds={issueColumns[status] ?? []}
+              issueMap={issueMap}
+              childProgressMap={childProgressMap}
+              myIssuesOpts={myIssuesOpts}
+              projectId={projectId ?? undefined}
+              showLoadMoreFooter={showLoadMoreFooter}
+            />
+          ))}
+          {showHiddenColumns && (
+            <HiddenColumnsPanel
+              hiddenStatuses={hiddenStatuses}
+              myIssuesOpts={myIssuesOpts}
+            />
+          )}
+        </div>
+      )}
     </section>
   );
 }
@@ -508,11 +561,15 @@ function ProjectLaneHeader({
   attributes,
   listeners,
   overlay = false,
+  collapsed = false,
+  onToggleCollapse,
 }: {
   lane: BoardSwimlane;
   attributes?: SortableAttributes;
   listeners?: SortableListeners;
   overlay?: boolean;
+  collapsed?: boolean;
+  onToggleCollapse?: (laneId: string) => void;
 }) {
   const { t } = useT("issues");
   const title = lane.project
@@ -528,6 +585,25 @@ function ProjectLaneHeader({
       }`}
     >
       <div className="flex min-w-0 items-center gap-2">
+        {onToggleCollapse ? (
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            className="h-6 w-6 shrink-0 rounded-md text-muted-foreground"
+            aria-label={
+              collapsed
+                ? t(($) => $.board.expand_project)
+                : t(($) => $.board.collapse_project)
+            }
+            onClick={() => onToggleCollapse(lane.id)}
+          >
+            {collapsed ? (
+              <ChevronRight className="size-4" />
+            ) : (
+              <ChevronDown className="size-4" />
+            )}
+          </Button>
+        ) : null}
         {lane.project ? (
           <Button
             variant="ghost"

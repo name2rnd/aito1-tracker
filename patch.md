@@ -1531,6 +1531,29 @@ BFF-allowlist; upstream не затронут.
 
 ---
 
+### Патч 46 — свёртывание/развёртывание блока проекта на доске
+
+**Зачем:** на доске много проектов = длинный скролл; сворачивание неактуальных
+блоков-проектов (swimlane) убирает шум и даёт фокус.
+
+**Файлы:**
+- `packages/views/issues/components/board-view.tsx` — хук `useCollapsedLanes` (Set
+  свёрнутых `lane.id` в localStorage `board:collapsed-project-lanes`, чтение после mount
+  ради SSR/hydration); в `ProjectLaneHeader` слева добавлен chevron-тоггл (ChevronDown ⇄
+  ChevronRight), в `ProjectSwimlane` колонки статусов рендерятся только при `!collapsed`.
+  Дефолт — развёрнуто, состояние per-project переживает reload.
+- `packages/views/locales/{en,zh-Hans}/issues.json` — ключи `board.collapse_project` /
+  `board.expand_project` (aria-label кнопки; типы i18n авто-выводятся из en JSON, паритет
+  локалей — `locales/parity.test.ts`).
+
+**Сборка/деплой:** `./scripts/aito1-deploy.sh frontend`.
+
+**Если конфликт:** всё аддитивно в `board-view.tsx` (новый хук + пропсы
+`collapsed`/`onToggleCollapse` у `ProjectSwimlane`/`ProjectLaneHeader`) + 2 i18n-ключа;
+upstream не затронут.
+
+---
+
 ## Связанные правки **вне** этого репо (для полноты картины)
 
 Эти правки лежат в других репо/файлах, но без них наш форк работает не полностью. Они описаны отдельно — здесь только указатели:
