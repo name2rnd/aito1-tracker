@@ -1554,6 +1554,30 @@ upstream не затронут.
 
 ---
 
+### Патч 47 — тумблер «Telegram Notifications» в Settings (вкл/выкл ТГ brain'а)
+
+**Зачем:** отключать TG-уведомления AITO1 brain'а из UI (жить на Inbox'е), без правки
+кода brain — флаг `notifications.telegram.enabled` уже гейтит нотифайер.
+
+**Файлы (multica):**
+- `apps/web/app/bff/notification-settings/route.ts` — новый same-origin BFF (GET/PUT),
+  cookie-gate `multica_logged_in`, форвардит на Brain `GET/PUT /api/settings/notifications`
+  (по образцу `/bff/monitoring`; brain — auth-free localhost:8082).
+- `packages/views/settings/components/notifications-tab.tsx` — секция «Telegram
+  Notifications», `Switch` читает/пишет через BFF (useQuery + useMutation, optimistic).
+- `packages/views/locales/{en,zh-Hans}/settings.json` — ключи `notifications.telegram.*`.
+
+**Правки вне репо (brain, arcadia `taxi/ai/aito1`):** `brain/api/admin.py` —
+`GET/PUT /api/settings/notifications` (read/`set_setting` флага `notifications.telegram.enabled`);
+doc `docs/notifications.md`. Go-бэкенд/CLI НЕ трогали (чисто фронт + Python + brain restart).
+
+**Сборка/деплой:** `./scripts/aito1-deploy.sh frontend` + рестарт brain. Без Go/codesign.
+
+**Если конфликт:** новый файл BFF + аддитивная секция Settings + 4 i18n-ключа;
+upstream не затронут.
+
+---
+
 ## Связанные правки **вне** этого репо (для полноты картины)
 
 Эти правки лежат в других репо/файлах, но без них наш форк работает не полностью. Они описаны отдельно — здесь только указатели:

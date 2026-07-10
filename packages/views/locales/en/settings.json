@@ -70,6 +70,12 @@
       "description": "Control native OS notification banners shown when Multica is in the background.",
       "label": "Show system notifications",
       "hint": "Show a banner from your operating system for new inbox items when the app isn't focused."
+    },
+    "telegram": {
+      "title": "Telegram Notifications",
+      "description": "Pipeline notifications (task ready for review, blocked, plan review) sent to Telegram.",
+      "label": "Send notifications to Telegram",
+      "hint": "Turn off to stop all Telegram messages — you'll rely on the Inbox instead."
     }
   },
   "tokens": {

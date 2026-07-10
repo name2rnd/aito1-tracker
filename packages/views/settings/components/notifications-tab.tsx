@@ -1,6 +1,6 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useWorkspaceId } from "@multica/core/hooks";
 import { notificationPreferenceOptions } from "@multica/core/notification-preferences/queries";
 import { useUpdateNotificationPreferences } from "@multica/core/notification-preferences/mutations";
@@ -44,6 +44,45 @@ export function NotificationsTab() {
   };
 
   const systemEnabled = preferences.system_notifications !== "muted";
+
+  // Telegram master switch — the flag lives in aito1_settings
+  // (`notifications.telegram.enabled`), reached via the same-origin Brain BFF.
+  // Off → the AITO1 brain sends no Telegram messages; the Human relies on the
+  // Inbox instead.
+  const TG_KEY = ["notification-settings", "telegram"] as const;
+  const qc = useQueryClient();
+  const tgQuery = useQuery({
+    queryKey: TG_KEY,
+    queryFn: async (): Promise<{ telegram_enabled: boolean }> => {
+      const r = await fetch("/bff/notification-settings", { credentials: "include" });
+      if (!r.ok) throw new Error("failed");
+      return r.json();
+    },
+  });
+  const tgMutation = useMutation({
+    mutationFn: async (enabled: boolean): Promise<{ telegram_enabled: boolean }> => {
+      const r = await fetch("/bff/notification-settings", {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ telegram_enabled: enabled }),
+      });
+      if (!r.ok) throw new Error("failed");
+      return r.json();
+    },
+    onMutate: async (enabled) => {
+      await qc.cancelQueries({ queryKey: TG_KEY });
+      const prev = qc.getQueryData<{ telegram_enabled: boolean }>(TG_KEY);
+      qc.setQueryData(TG_KEY, { telegram_enabled: enabled });
+      return { prev };
+    },
+    onError: (_e, _v, ctx) => {
+      if (ctx?.prev) qc.setQueryData(TG_KEY, ctx.prev);
+      toast.error(t(($) => $.notifications.toast_failed));
+    },
+    onSettled: () => qc.invalidateQueries({ queryKey: TG_KEY }),
+  });
+  const telegramEnabled = tgQuery.data?.telegram_enabled ?? false;
 
   return (
     <div className="space-y-8">
@@ -101,6 +140,33 @@ export function NotificationsTab() {
               <Switch
                 checked={systemEnabled}
                 onCheckedChange={(checked) => handleToggle("system_notifications", checked)}
+              />
+            </div>
+          </CardContent>
+        </Card>
+      </section>
+
+      <section className="space-y-4">
+        <div>
+          <h2 className="text-sm font-semibold">{t(($) => $.notifications.telegram.title)}</h2>
+          <p className="text-sm text-muted-foreground mt-1">
+            {t(($) => $.notifications.telegram.description)}
+          </p>
+        </div>
+
+        <Card>
+          <CardContent>
+            <div className="flex items-center justify-between">
+              <div className="space-y-0.5 pr-4">
+                <p className="text-sm font-medium">{t(($) => $.notifications.telegram.label)}</p>
+                <p className="text-xs text-muted-foreground">
+                  {t(($) => $.notifications.telegram.hint)}
+                </p>
+              </div>
+              <Switch
+                checked={telegramEnabled}
+                disabled={tgQuery.isLoading || tgMutation.isPending}
+                onCheckedChange={(checked) => tgMutation.mutate(checked)}
               />
             </div>
           </CardContent>
