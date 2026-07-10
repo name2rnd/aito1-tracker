@@ -1578,6 +1578,46 @@ upstream не затронут.
 
 ---
 
+### Патч 48 — peek-сайдбар задачи (оверлей вместо перехода на страницу)
+
+**Зачем:** клик по задаче в списке/на доске открывал отдельную страницу — чтобы
+прощёлкать пачку задач (прочитать, прокомментировать, сменить статус), приходилось
+ходить «назад-вперёд». Теперь клик открывает ту же `IssueDetail` в правом оверлей-`Sheet`
+поверх списка; позиция в списке не теряется. Референс — Inbox уже встраивает `IssueDetail`
+в master-detail. План: `plans/issue-peek-sidebar-2026-07-10.md`.
+
+**Файлы (multica):**
+- `packages/core/issues/stores/peek-store.ts` (нов.) + `stores/index.ts` — zustand-стор
+  `useIssuePeekStore { openId, open(id), close() }`. `openId` = id ИЛИ identifier (AIT-42).
+- `packages/views/navigation/app-link.tsx` — новый проп `onActivate?: () => void`: обычный
+  (немодифицированный) клик вызывает его вместо `push(href)`; модификатор-клик (meta/ctrl/shift)
+  не тронут → нативная новая вкладка/полная страница; `href` остаётся на `<a>` (middle-click, a11y).
+- `packages/views/issues/components/list-row.tsx` + `board-card.tsx` — на существующем `AppLink`
+  добавлен `onActivate={() => open(issue.identifier)}`. Перехват в самой строке/карточке →
+  работает на списке, доске, my-issues и досках проектов.
+- `packages/views/issues/components/issue-peek-sheet.tsx` (нов.) + `components/index.ts` —
+  `Sheet side=right`, `showCloseButton={false}`, ширина через inline-`style`
+  `{width:62vw, minWidth:560, maxWidth:1040}` (перебивает базовый `data-[side=right]:sm:max-w-sm`,
+  который twMerge НЕ склеивает из-за variant-префикса). Рендерит `IssueDetail` с
+  `defaultSidebarOpen={false}` (панель свойств скрыта; раскрывается тумблером `PanelRight` в шапке),
+  `layoutId="multica_issue_peek_layout"`, `onDone/onDelete={close}`. Закрытие — Esc / клик по фону.
+- `apps/web/app/[workspaceSlug]/(dashboard)/layout.tsx` — `<IssuePeekSheet/>` смонтирован один раз
+  в слоте `extra` (глобальный стор → одна панель на все поверхности).
+
+**Тесты:** `peek-store.test.ts` (4), `navigation/app-link.test.tsx` (3, вкл. модификатор-клик).
+Живой QA (kimi): board+list клик → панель, URL не меняется, Esc закрывает, ширина-клэмп,
+тумблер свойств, пикер статуса (base-ui поповер внутри Dialog), ввод комментария — ОК.
+Известный нюанс: Escape при открытом пикере закрывает всю панель (приоритет Dialog), не блокер.
+
+**Сборка/деплой:** `./scripts/aito1-deploy.sh frontend`. Чисто фронт, Go/codesign не трогали.
+
+**Если конфликт при merge/rebase:** держать (1) проп `onActivate` в `AppLink` + ветку
+`if (onActivate) { onActivate(); return; }` перед `push(href)`; (2) `onActivate` на `AppLink`
+в `list-row.tsx`/`board-card.tsx`; (3) новые файлы `peek-store.ts`/`issue-peek-sheet.tsx` +
+их экспорты; (4) монтаж `<IssuePeekSheet/>` в dashboard layout.
+
+---
+
 ## Связанные правки **вне** этого репо (для полноты картины)
 
 Эти правки лежат в других репо/файлах, но без них наш форк работает не полностью. Они описаны отдельно — здесь только указатели:

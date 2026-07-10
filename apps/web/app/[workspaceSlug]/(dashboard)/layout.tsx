@@ -5,6 +5,7 @@ import { MulticaIcon } from "@multica/ui/components/common/multica-icon";
 import { SearchCommand, SearchTrigger } from "@multica/views/search";
 import { ChatFab, ChatWindow } from "@multica/views/chat";
 import { StarterContentPrompt } from "@multica/views/onboarding";
+import { IssuePeekSheet } from "@multica/views/issues/components";
 
 export default function Layout({ children }: { children: React.ReactNode }) {
   return (
@@ -17,6 +18,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
           <ChatWindow />
           <ChatFab />
           <StarterContentPrompt />
+          <IssuePeekSheet />
         </>
       }
     >

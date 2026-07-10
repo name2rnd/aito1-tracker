@@ -6,6 +6,7 @@ import { AppLink } from "../../navigation";
 import type { Issue } from "@multica/core/types";
 import { ActorAvatar } from "../../common/actor-avatar";
 import { useIssueSelectionStore } from "@multica/core/issues/stores/selection-store";
+import { useIssuePeekStore } from "@multica/core/issues/stores/peek-store";
 import { useWorkspacePaths } from "@multica/core/paths";
 import { useWorkspaceId } from "@multica/core/hooks";
 import { useViewStore } from "@multica/core/issues/stores/view-store-context";
@@ -37,6 +38,7 @@ export const ListRow = memo(function ListRow({
 }) {
   const selected = useIssueSelectionStore((s) => s.selectedIds.has(issue.id));
   const toggle = useIssueSelectionStore((s) => s.toggle);
+  const openPeek = useIssuePeekStore((s) => s.open);
   const p = useWorkspacePaths();
   const storeProperties = useViewStore((s) => s.cardProperties);
   const wsId = useWorkspaceId();
@@ -76,6 +78,7 @@ export const ListRow = memo(function ListRow({
         </div>
         <AppLink
           href={p.issueDetail(issue.identifier)}
+          onActivate={() => openPeek(issue.identifier)}
           className="flex flex-1 items-center gap-2 min-w-0"
         >
           <span className="w-16 shrink-0 text-xs text-muted-foreground">

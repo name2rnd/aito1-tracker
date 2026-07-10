@@ -12,6 +12,7 @@ import { useQuery } from "@tanstack/react-query";
 import { ActorAvatar } from "../../common/actor-avatar";
 import { useUpdateIssue } from "@multica/core/issues/mutations";
 import { useWorkspacePaths } from "@multica/core/paths";
+import { useIssuePeekStore } from "@multica/core/issues/stores/peek-store";
 import { useWorkspaceId } from "@multica/core/hooks";
 import { projectListOptions } from "@multica/core/projects/queries";
 import { agentTaskSnapshotOptions } from "@multica/core/agents/queries";
@@ -180,6 +181,7 @@ const animateLayoutChanges: AnimateLayoutChanges = (args) => {
 
 export const DraggableBoardCard = memo(function DraggableBoardCard({ issue, childProgress }: { issue: Issue; childProgress?: ChildProgress }) {
   const p = useWorkspacePaths();
+  const openPeek = useIssuePeekStore((s) => s.open);
   const {
     attributes,
     listeners,
@@ -209,6 +211,7 @@ export const DraggableBoardCard = memo(function DraggableBoardCard({ issue, chil
       >
         <AppLink
           href={p.issueDetail(issue.identifier)}
+          onActivate={() => openPeek(issue.identifier)}
           className={`group block transition-colors ${isDragging ? "pointer-events-none" : ""}`}
         >
           <BoardCardContent issue={issue} editable childProgress={childProgress} />
