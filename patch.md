@@ -1627,3 +1627,16 @@ upstream не затронут.
 - **`~/secrets.env`** — `ELIZA_TOKEN` копией `AITO1_API_KEY` для работы `private-llm.sh`.
 - **`/Users/wwax/arcadia/taxi/ai/aito1/install/phases/{40_multica,50_multica_daemon}.sh`** + `install/templates/config.env.template` — параметризация `AITO1_MULTICA_GIT_REPO`/`AITO1_MULTICA_GIT_REF` + сборка `cmd/multica` локально вместо brew tap. Закоммичено в arc (PR https://a.yandex-team.ru/review/13274199).
 - **`~/.aito1/multica.env` → `CORS_ALLOWED_ORIGINS`** — WS origin-allowlist. Бэк заходит и через hosts-алиас `http://aito1.ai:3010` (кликабельные TG-ссылки), а не только `localhost:3010`. Каждый рабочий origin ДОЛЖЕН быть в `CORS_ALLOWED_ORIGINS` (CSV) — именно её читает `allowedOrigins()` в `router.go`, которая через `realtime.SetAllowedOrigins` перетирает WS-список из `hub.go:init()` (т.е. `ALLOWED_ORIGINS` в одиночку не работает). Без нужного origin: `ws: rejected origin` → `websocket upgrade failed` → фронт-loop `disconnected, reconnecting in 3s`, realtime мёртв (HTTP работает — он same-origin через Next-прокси). Текущее: `CORS_ALLOWED_ORIGINS=http://localhost:3010,http://aito1.ai:3010`. NB: `localStorage` (в т.ч. реестр identity Патча 40) origin-scoped — сеять на КАЖДОМ origin, где открываешь UI.
+
+### Патч 49 — пропуск CLAUDE_CODE_OAUTH_TOKEN в env агентов (Linux VM)
+
+Файл: `server/pkg/agent/claude.go`, `isFilteredChildEnvKey`.
+
+Проблема: фильтр дочернего env вырезает все `CLAUDE_CODE_*` родителя (введён для контроля
+auto-memory). На macOS это скрывал Keychain (claude сам находил креды подписки), на Linux VM
+креды передаются только через env `CLAUDE_CODE_OAUTH_TOKEN` из systemd EnvironmentFile
+(`~/.aito1/claude.env`) — фильтр отрезал токен, агенты падали «Not logged in · Please run /login»
+(наблюдалось на смок-issue 6a8a2f15, 2026-07-11).
+
+Фикс: исключение в фильтре — `CLAUDE_CODE_OAUTH_TOKEN` пропускается к спавнутому claude.
+Остальные `CLAUDE_CODE_*` по-прежнему фильтруются и переустанавливаются демоном.

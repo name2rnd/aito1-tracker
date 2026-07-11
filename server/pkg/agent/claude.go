@@ -549,6 +549,12 @@ func mergeEnv(base []string, extra map[string]string) []string {
 }
 
 func isFilteredChildEnvKey(key string) bool {
+	// AITO1-patch (Linux VM): CLAUDE_CODE_OAUTH_TOKEN is the subscription
+	// credential injected via the daemon unit EnvironmentFile — it must reach
+	// the spawned claude process (Linux has no macOS Keychain fallback).
+	if key == "CLAUDE_CODE_OAUTH_TOKEN" {
+		return false
+	}
 	return key == "CLAUDECODE" ||
 		strings.HasPrefix(key, "CLAUDECODE_") ||
 		strings.HasPrefix(key, "CLAUDE_CODE_")
