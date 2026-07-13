@@ -82,6 +82,37 @@ func TestClient_VersionOmittedWhenUnset(t *testing.T) {
 	}
 }
 
+func TestClientTrackerTruthMarksLifecycleCallbacks(t *testing.T) {
+	var calls int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Errorf("decode lifecycle callback: %v", err)
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		if body["tracker_truth"] != true {
+			t.Errorf("tracker_truth missing from %s callback", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{}`))
+	}))
+	defer srv.Close()
+
+	c := NewClient(srv.URL)
+	c.SetTrackerTruth(true)
+	if err := c.CompleteTask(context.Background(), "task-1", "done", "", "", ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.FailTask(context.Background(), "task-2", "failed", "", "", "agent_error"); err != nil {
+		t.Fatal(err)
+	}
+	if calls != 2 {
+		t.Fatalf("lifecycle callbacks = %d, want 2", calls)
+	}
+}
+
 func TestNormalizeGOOS(t *testing.T) {
 	cases := map[string]string{
 		"darwin":  "macos",

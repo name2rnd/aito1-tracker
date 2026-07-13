@@ -83,6 +83,7 @@ type Daemon struct {
 func New(cfg Config, logger *slog.Logger) *Daemon {
 	cacheRoot := filepath.Join(cfg.WorkspacesRoot, ".repos")
 	client := NewClient(cfg.ServerBaseURL)
+	client.SetTrackerTruth(cfg.AITO1TrackerTruth)
 	// Tag every daemon HTTP request with the daemon's CLI version so the
 	// server can split logs/metrics by client version (parallel to the CLI).
 	client.SetVersion(cfg.CLIVersion)
@@ -1462,10 +1463,7 @@ func (d *Daemon) handleTask(ctx context.Context, task Task, slot int) {
 		// both saw a generic agent error). The execute returned no result, so no
 		// tool call was made (tools=0): classify the message; an empty result
 		// (unknown signature) keeps the old "agent_error".
-		failureReason := classifyStartupFailure(err.Error(), 0)
-		if failureReason == "" {
-			failureReason = "agent_error"
-		}
+		failureReason := failureReasonForRunError(err)
 		if failErr := d.client.FailTask(ctx, task.ID, err.Error(), "", "", failureReason); failErr != nil {
 			taskLog.Error("fail task callback failed", "error", failErr)
 		}
@@ -1532,6 +1530,11 @@ func (d *Daemon) runTask(ctx context.Context, task Task, provider string, slot i
 	if task.WorkspaceID == "" {
 		return TaskResult{}, fmt.Errorf("refusing to spawn agent: task has no workspace_id (task_id=%s)", task.ID)
 	}
+	input, err := d.taskInput(ctx, task)
+	if err != nil {
+		return TaskResult{}, err
+	}
+	applyTrackerTruthSessionBoundary(d.cfg, &task)
 
 	// task.Repos is the authoritative repo list for this task — when the
 	// claimed task belongs to a project with github_repo resources the server
@@ -1544,6 +1547,9 @@ func (d *Daemon) runTask(ctx context.Context, task Task, provider string, slot i
 	entry, ok := d.cfg.Agents[provider]
 	if !ok {
 		return TaskResult{}, fmt.Errorf("no agent configured for provider %q", provider)
+	}
+	if err := validateTrackerTruthPromptBoundary(d.cfg, provider); err != nil {
+		return TaskResult{}, err
 	}
 
 	agentName := "agent"
@@ -1561,6 +1567,7 @@ func (d *Daemon) runTask(ctx context.Context, task Task, provider string, slot i
 	// Repos are passed as metadata only — the agent checks them out on demand
 	// via `multica repo checkout <url>`.
 	taskCtx := execenv.TaskContextForEnv{
+		TrackerTruth:            d.cfg.AITO1TrackerTruth,
 		IssueID:                 task.IssueID,
 		TriggerCommentID:        task.TriggerCommentID,
 		AgentID:                 agentID,
@@ -1579,6 +1586,9 @@ func (d *Daemon) runTask(ctx context.Context, task Task, provider string, slot i
 		AutopilotSource:         task.AutopilotSource,
 		AutopilotTriggerPayload: strings.TrimSpace(string(task.AutopilotTriggerPayload)),
 		QuickCreatePrompt:       task.QuickCreatePrompt,
+	}
+	if d.cfg.AITO1TrackerTruth {
+		scrubLegacyTaskContext(&taskCtx)
 	}
 
 	// Mark candidate env roots as active before any env work so the GC loop
@@ -1632,7 +1642,7 @@ func (d *Daemon) runTask(ctx context.Context, task Task, provider string, slot i
 	// the same (agent, issue) pair. The work_dir path is stored in DB on
 	// task completion and passed back via PriorWorkDir on the next claim.
 
-	prompt := BuildPrompt(task)
+	prompt := input.UserPrompt
 
 	// Pass the daemon's auth credentials and context so the spawned agent CLI
 	// can call the Multica API and the local daemon (e.g. `multica repo checkout`).
@@ -1649,6 +1659,7 @@ func (d *Daemon) runTask(ctx context.Context, task Task, provider string, slot i
 		"MULTICA_TASK_ID":      task.ID,
 		"MULTICA_TASK_SLOT":    strconv.Itoa(slot),
 	}
+	addAITO1TaskEnv(agentEnv, d.cfg, task.ID, input.TaskToken)
 	if task.AutopilotRunID != "" {
 		agentEnv["MULTICA_AUTOPILOT_RUN_ID"] = task.AutopilotRunID
 	}
@@ -1752,15 +1763,12 @@ func (d *Daemon) runTask(ctx context.Context, task Task, provider string, slot i
 		CustomArgs:                customArgs,
 		McpConfig:                 mcpConfig,
 	}
-	// openclaw loads its bootstrap files (AGENTS.md, SOUL.md, ...) from its own
-	// workspace dir rather than the task workdir, so the AGENTS.md written by
-	// execenv.InjectRuntimeConfig is never read. Pass agent instructions inline
-	// via SystemPrompt so the backend can prepend them to the --message payload.
-	// Other providers already surface instructions through their runtime config
-	// file and don't need this.
-	if provider == "openclaw" {
-		execOpts.SystemPrompt = instructions
-	}
+	// Tracker-truth keeps trusted role instructions in the backend's system /
+	// developer channel while the serialized Tracker payload remains the user
+	// prompt. Legacy mode preserves the existing provider behavior. OpenClaw
+	// still needs inline instructions in both modes because it ignores the task
+	// workdir bootstrap files.
+	configureSystemPrompt(&execOpts, d.cfg, provider, instructions)
 
 	result, tools, err := d.executeAndDrain(ctx, backend, prompt, execOpts, taskLog, task.ID)
 	if err != nil {
@@ -2285,10 +2293,82 @@ func isBlockedEnvKey(key string) bool {
 		return true
 	}
 	switch upper {
-	case "HOME", "PATH", "USER", "SHELL", "TERM", "CODEX_HOME":
+	case "HOME", "PATH", "USER", "SHELL", "TERM", "CODEX_HOME",
+		"AITO1_DAEMON_SERVICE_TOKEN", "AITO1_TASK_TOKEN", "AITO1_TASK_ID", "AITO1_BRAIN_URL":
 		return true
 	}
 	return false
+}
+
+func failureReasonForRunError(err error) string {
+	var runtimeContextErr *RuntimeContextError
+	if errors.As(err, &runtimeContextErr) {
+		return "runtime_context_unavailable"
+	}
+	if reason := classifyStartupFailure(err.Error(), 0); reason != "" {
+		return reason
+	}
+	return "agent_error"
+}
+
+func addAITO1TaskEnv(agentEnv map[string]string, cfg Config, taskID, taskToken string) {
+	if !cfg.AITO1TrackerTruth {
+		return
+	}
+	agentEnv["AITO1_TASK_TOKEN"] = taskToken
+	agentEnv["AITO1_TASK_ID"] = taskID
+	agentEnv["AITO1_BRAIN_URL"] = cfg.AITO1BrainURL
+}
+
+func configureSystemPrompt(opts *agent.ExecOptions, cfg Config, provider, instructions string) {
+	if cfg.AITO1TrackerTruth || provider == "openclaw" {
+		opts.SystemPrompt = instructions
+	}
+}
+
+func validateTrackerTruthPromptBoundary(cfg Config, provider string) error {
+	if !cfg.AITO1TrackerTruth {
+		return nil
+	}
+	switch provider {
+	case "claude", "codex", "opencode", "pi":
+		return nil
+	default:
+		return fmt.Errorf("provider %q cannot preserve the Tracker-truth system/user prompt boundary", provider)
+	}
+}
+
+// scrubLegacyTaskContext prevents Multica issue/thread data from reaching
+// provider-discovered runtime files in Tracker-truth mode. Agent identity is
+// also omitted there because the unchanged role prompt is passed explicitly
+// via ExecOptions.SystemPrompt. Skills and repository allowlists remain
+// available as static runtime capabilities.
+func scrubLegacyTaskContext(ctx *execenv.TaskContextForEnv) {
+	ctx.IssueID = ""
+	ctx.TriggerCommentID = ""
+	ctx.AgentInstructions = ""
+	ctx.ProjectID = ""
+	ctx.ProjectTitle = ""
+	ctx.ProjectResources = nil
+	ctx.ChatSessionID = ""
+	ctx.AutopilotRunID = ""
+	ctx.AutopilotID = ""
+	ctx.AutopilotTitle = ""
+	ctx.AutopilotDescription = ""
+	ctx.AutopilotSource = ""
+	ctx.AutopilotTriggerPayload = ""
+	ctx.QuickCreatePrompt = ""
+}
+
+func applyTrackerTruthSessionBoundary(cfg Config, task *Task) {
+	if !cfg.AITO1TrackerTruth {
+		return
+	}
+	// A legacy workdir or resumed conversation can contain Multica issue data
+	// and instructions from before cutover. Tracker-truth sessions therefore
+	// always start with a fresh context boundary.
+	task.PriorSessionID = ""
+	task.PriorWorkDir = ""
 }
 
 func defaultArgsForProvider(cfg Config, provider string) []string {

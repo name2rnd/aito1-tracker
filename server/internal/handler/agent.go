@@ -134,45 +134,48 @@ type ProjectResourceData struct {
 }
 
 type AgentTaskResponse struct {
-	ID                      string          `json:"id"`
-	AgentID                 string          `json:"agent_id"`
-	RuntimeID               string          `json:"runtime_id"`
-	IssueID                 string          `json:"issue_id"`
-	WorkspaceID             string          `json:"workspace_id"`
-	Status                  string          `json:"status"`
-	Priority                int32           `json:"priority"`
-	DispatchedAt            *string         `json:"dispatched_at"`
-	StartedAt               *string         `json:"started_at"`
-	CompletedAt             *string         `json:"completed_at"`
-	Result                  any             `json:"result"`
-	Error                   *string         `json:"error"`
-	FailureReason           string          `json:"failure_reason,omitempty"` // see TaskService.MaybeRetryFailedTask
-	Attempt                 int32           `json:"attempt"`
-	MaxAttempts             int32           `json:"max_attempts"`
-	ParentTaskID            *string         `json:"parent_task_id,omitempty"`
-	Agent                   *TaskAgentData  `json:"agent,omitempty"`
+	ID                      string                `json:"id"`
+	AgentID                 string                `json:"agent_id"`
+	RuntimeID               string                `json:"runtime_id"`
+	IssueID                 string                `json:"issue_id"`
+	WorkspaceID             string                `json:"workspace_id"`
+	Status                  string                `json:"status"`
+	Priority                int32                 `json:"priority"`
+	DispatchedAt            *string               `json:"dispatched_at"`
+	StartedAt               *string               `json:"started_at"`
+	CompletedAt             *string               `json:"completed_at"`
+	Result                  any                   `json:"result"`
+	Error                   *string               `json:"error"`
+	FailureReason           string                `json:"failure_reason,omitempty"` // see TaskService.MaybeRetryFailedTask
+	Attempt                 int32                 `json:"attempt"`
+	MaxAttempts             int32                 `json:"max_attempts"`
+	ParentTaskID            *string               `json:"parent_task_id,omitempty"`
+	EffectID                *string               `json:"effect_id,omitempty"`
+	BindingGeneration       *int32                `json:"binding_generation,omitempty"`
+	AgentRole               *string               `json:"agent_role,omitempty"`
+	Agent                   *TaskAgentData        `json:"agent,omitempty"`
 	Repos                   []RepoData            `json:"repos,omitempty"`
-	ProjectID               string                `json:"project_id,omitempty"`         // issue's project, when present
-	ProjectTitle            string                `json:"project_title,omitempty"`      // for surfacing in agent context
-	ProjectResources        []ProjectResourceData `json:"project_resources,omitempty"`  // resources attached to the project
-	CreatedAt               string          `json:"created_at"`
-	PriorSessionID          string          `json:"prior_session_id,omitempty"`          // session ID from a previous task on same issue
-	PriorWorkDir            string          `json:"prior_work_dir,omitempty"`            // work_dir from a previous task on same issue
-	TriggerCommentID        *string         `json:"trigger_comment_id,omitempty"`        // comment that triggered this task
-	TriggerCommentContent   string          `json:"trigger_comment_content,omitempty"`   // content of the triggering comment
-	TriggerSummary          *string         `json:"trigger_summary,omitempty"`           // canonical short description snapshot — comment text / autopilot title — taken at task creation; survives source edits/deletes
-	TriggerAuthorType       string          `json:"trigger_author_type,omitempty"`       // "agent" or "member" — author kind of the triggering comment
-	TriggerAuthorName       string          `json:"trigger_author_name,omitempty"`       // display name of the triggering comment author
-	ChatSessionID           string          `json:"chat_session_id,omitempty"`           // non-empty for chat tasks
-	ChatMessage             string          `json:"chat_message,omitempty"`              // user message for chat tasks
-	AutopilotRunID          string          `json:"autopilot_run_id,omitempty"`          // non-empty for autopilot-spawned tasks
-	AutopilotID             string          `json:"autopilot_id,omitempty"`              // autopilot that spawned this task
-	AutopilotTitle          string          `json:"autopilot_title,omitempty"`           // autopilot title used as task context
-	AutopilotDescription    string          `json:"autopilot_description,omitempty"`     // autopilot description used as task prompt
-	AutopilotSource         string          `json:"autopilot_source,omitempty"`          // manual, schedule, webhook, or api
-	AutopilotTriggerPayload json.RawMessage `json:"autopilot_trigger_payload,omitempty"` // optional trigger payload for webhook/api runs
-	QuickCreatePrompt       string          `json:"quick_create_prompt,omitempty"`       // user's natural-language input for quick-create tasks
-	Kind                    string          `json:"kind"`                                // discriminator: "comment" | "autopilot" | "chat" | "quick_create" | "direct" — used by the activity row to label tasks that have no linked issue
+	ProjectID               string                `json:"project_id,omitempty"`        // issue's project, when present
+	ProjectTitle            string                `json:"project_title,omitempty"`     // for surfacing in agent context
+	ProjectResources        []ProjectResourceData `json:"project_resources,omitempty"` // resources attached to the project
+	CreatedAt               string                `json:"created_at"`
+	PriorSessionID          string                `json:"prior_session_id,omitempty"`          // session ID from a previous task on same issue
+	PriorWorkDir            string                `json:"prior_work_dir,omitempty"`            // work_dir from a previous task on same issue
+	TriggerCommentID        *string               `json:"trigger_comment_id,omitempty"`        // comment that triggered this task
+	TriggerCommentContent   string                `json:"trigger_comment_content,omitempty"`   // content of the triggering comment
+	TriggerSummary          *string               `json:"trigger_summary,omitempty"`           // canonical short description snapshot — comment text / autopilot title — taken at task creation; survives source edits/deletes
+	TriggerAuthorType       string                `json:"trigger_author_type,omitempty"`       // "agent" or "member" — author kind of the triggering comment
+	TriggerAuthorName       string                `json:"trigger_author_name,omitempty"`       // display name of the triggering comment author
+	ChatSessionID           string                `json:"chat_session_id,omitempty"`           // non-empty for chat tasks
+	ChatMessage             string                `json:"chat_message,omitempty"`              // user message for chat tasks
+	AutopilotRunID          string                `json:"autopilot_run_id,omitempty"`          // non-empty for autopilot-spawned tasks
+	AutopilotID             string                `json:"autopilot_id,omitempty"`              // autopilot that spawned this task
+	AutopilotTitle          string                `json:"autopilot_title,omitempty"`           // autopilot title used as task context
+	AutopilotDescription    string                `json:"autopilot_description,omitempty"`     // autopilot description used as task prompt
+	AutopilotSource         string                `json:"autopilot_source,omitempty"`          // manual, schedule, webhook, or api
+	AutopilotTriggerPayload json.RawMessage       `json:"autopilot_trigger_payload,omitempty"` // optional trigger payload for webhook/api runs
+	QuickCreatePrompt       string                `json:"quick_create_prompt,omitempty"`       // user's natural-language input for quick-create tasks
+	Kind                    string                `json:"kind"`                                // discriminator: "comment" | "autopilot" | "chat" | "quick_create" | "direct" — used by the activity row to label tasks that have no linked issue
 }
 
 // TaskAgentData holds agent info included in claim responses so the daemon
@@ -197,25 +200,33 @@ func taskToResponse(t db.AgentTaskQueue) AgentTaskResponse {
 	if t.FailureReason.Valid {
 		failureReason = t.FailureReason.String
 	}
+	var bindingGeneration *int32
+	if t.BindingGeneration.Valid {
+		value := t.BindingGeneration.Int32
+		bindingGeneration = &value
+	}
 	return AgentTaskResponse{
-		ID:               uuidToString(t.ID),
-		AgentID:          uuidToString(t.AgentID),
-		RuntimeID:        uuidToString(t.RuntimeID),
-		IssueID:          uuidToString(t.IssueID),
-		Status:           t.Status,
-		Priority:         t.Priority,
-		DispatchedAt:     timestampToPtr(t.DispatchedAt),
-		StartedAt:        timestampToPtr(t.StartedAt),
-		CompletedAt:      timestampToPtr(t.CompletedAt),
-		Result:           result,
-		Error:            textToPtr(t.Error),
-		FailureReason:    failureReason,
-		Attempt:          t.Attempt,
-		MaxAttempts:      t.MaxAttempts,
-		ParentTaskID:     uuidToPtr(t.ParentTaskID),
-		CreatedAt:        timestampToString(t.CreatedAt),
-		TriggerCommentID: uuidToPtr(t.TriggerCommentID),
-		TriggerSummary:   textToPtr(t.TriggerSummary),
+		ID:                uuidToString(t.ID),
+		AgentID:           uuidToString(t.AgentID),
+		RuntimeID:         uuidToString(t.RuntimeID),
+		IssueID:           uuidToString(t.IssueID),
+		Status:            t.Status,
+		Priority:          t.Priority,
+		DispatchedAt:      timestampToPtr(t.DispatchedAt),
+		StartedAt:         timestampToPtr(t.StartedAt),
+		CompletedAt:       timestampToPtr(t.CompletedAt),
+		Result:            result,
+		Error:             textToPtr(t.Error),
+		FailureReason:     failureReason,
+		Attempt:           t.Attempt,
+		MaxAttempts:       t.MaxAttempts,
+		ParentTaskID:      uuidToPtr(t.ParentTaskID),
+		EffectID:          textToPtr(t.EffectID),
+		BindingGeneration: bindingGeneration,
+		AgentRole:         textToPtr(t.AgentRole),
+		CreatedAt:         timestampToString(t.CreatedAt),
+		TriggerCommentID:  uuidToPtr(t.TriggerCommentID),
+		TriggerSummary:    textToPtr(t.TriggerSummary),
 		// Surface task source so the UI can distinguish issue-linked tasks
 		// from chat-spawned or autopilot-spawned ones; all three may arrive
 		// with issue_id = "" once a task has no linked issue.

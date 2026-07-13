@@ -40,6 +40,15 @@ type TaskWakeupNotifier interface {
 	NotifyTaskAvailable(runtimeID, taskID string)
 }
 
+// RunCorrelation is the stable identity Brain assigns to one durable run
+// effect. It is optional; legacy callers continue to use the uncorrelated
+// enqueue methods and preserve the existing queue semantics.
+type RunCorrelation struct {
+	EffectID          string
+	BindingGeneration int32
+	AgentRole         string
+}
+
 // triggerSummaryMaxLen caps the snapshot length so the row stays cheap to
 // transmit (it ends up in every task list response). 200 is enough for a
 // recognisable preview of a one-paragraph comment.
@@ -107,6 +116,94 @@ func (s *TaskService) EnqueueTaskForIssue(ctx context.Context, issue db.Issue, t
 		commentID = triggerCommentID[0]
 	}
 	return s.enqueueIssueTask(ctx, issue, commentID, false)
+}
+
+// EnqueueTaskForIssueCorrelated creates a task once for a stable Brain effect.
+// A duplicate (including a concurrent duplicate) returns the existing row in
+// its current status and does not re-broadcast or re-notify the daemon.
+func (s *TaskService) EnqueueTaskForIssueCorrelated(ctx context.Context, issue db.Issue, correlation RunCorrelation) (db.AgentTaskQueue, error) {
+	existing, err := s.Queries.GetAgentTaskByEffectID(ctx, pgtype.Text{String: correlation.EffectID, Valid: true})
+	if err == nil {
+		if err := validateRunCorrelation(existing, issue.ID, correlation); err != nil {
+			return db.AgentTaskQueue{}, err
+		}
+		return existing, nil
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return db.AgentTaskQueue{}, fmt.Errorf("lookup correlated task: %w", err)
+	}
+
+	task, inserted, err := s.createCorrelatedIssueTask(ctx, s.Queries, issue, pgtype.UUID{}, false, correlation)
+	if err != nil {
+		return db.AgentTaskQueue{}, err
+	}
+	if inserted {
+		slog.Info("correlated task enqueued",
+			"task_id", util.UUIDToString(task.ID),
+			"issue_id", util.UUIDToString(issue.ID),
+			"agent_id", util.UUIDToString(issue.AssigneeID),
+			"effect_id", correlation.EffectID,
+		)
+		s.broadcastTaskEvent(ctx, protocol.EventTaskQueued, task)
+		s.notifyTaskAvailable(task)
+	}
+	return task, nil
+}
+
+func (s *TaskService) createCorrelatedIssueTask(ctx context.Context, q *db.Queries, issue db.Issue, triggerCommentID pgtype.UUID, forceFreshSession bool, correlation RunCorrelation) (db.AgentTaskQueue, bool, error) {
+	if correlation.EffectID == "" || correlation.BindingGeneration < 1 || correlation.AgentRole == "" {
+		return db.AgentTaskQueue{}, false, fmt.Errorf("effect_id, positive binding_generation, and agent_role are required")
+	}
+	if !issue.AssigneeID.Valid {
+		return db.AgentTaskQueue{}, false, fmt.Errorf("issue has no assignee")
+	}
+
+	agent, err := q.GetAgent(ctx, issue.AssigneeID)
+	if err != nil {
+		return db.AgentTaskQueue{}, false, fmt.Errorf("load agent: %w", err)
+	}
+	if agent.ArchivedAt.Valid {
+		return db.AgentTaskQueue{}, false, fmt.Errorf("agent is archived")
+	}
+	if !agent.RuntimeID.Valid {
+		return db.AgentTaskQueue{}, false, fmt.Errorf("agent has no runtime")
+	}
+
+	created, err := q.CreateCorrelatedAgentTask(ctx, db.CreateCorrelatedAgentTaskParams{
+		AgentID:           issue.AssigneeID,
+		RuntimeID:         agent.RuntimeID,
+		IssueID:           issue.ID,
+		Priority:          priorityToInt(issue.Priority),
+		EffectID:          pgtype.Text{String: correlation.EffectID, Valid: true},
+		BindingGeneration: pgtype.Int4{Int32: correlation.BindingGeneration, Valid: true},
+		AgentRole:         pgtype.Text{String: correlation.AgentRole, Valid: true},
+		TriggerCommentID:  triggerCommentID,
+		TriggerSummary:    s.buildCommentTriggerSummary(ctx, triggerCommentID),
+		ForceFreshSession: pgtype.Bool{Bool: forceFreshSession, Valid: forceFreshSession},
+	})
+	if err != nil {
+		return db.AgentTaskQueue{}, false, fmt.Errorf("create correlated task: %w", err)
+	}
+	task, err := q.GetAgentTask(ctx, created.ID)
+	if err != nil {
+		return db.AgentTaskQueue{}, false, fmt.Errorf("load correlated task: %w", err)
+	}
+	if err := validateRunCorrelation(task, issue.ID, correlation); err != nil {
+		return db.AgentTaskQueue{}, false, err
+	}
+	return task, created.Inserted, nil
+}
+
+func validateRunCorrelation(task db.AgentTaskQueue, issueID pgtype.UUID, correlation RunCorrelation) error {
+	if task.IssueID != issueID {
+		return fmt.Errorf("effect_id already belongs to a different issue")
+	}
+	if !task.EffectID.Valid || task.EffectID.String != correlation.EffectID ||
+		!task.BindingGeneration.Valid || task.BindingGeneration.Int32 != correlation.BindingGeneration ||
+		!task.AgentRole.Valid || task.AgentRole.String != correlation.AgentRole {
+		return fmt.Errorf("effect_id already exists with different correlation metadata")
+	}
+	return nil
 }
 
 // enqueueIssueTask is the shared implementation behind EnqueueTaskForIssue
@@ -630,7 +727,7 @@ func (s *TaskService) StartTask(ctx context.Context, taskID pgtype.UUID) (*db.Ag
 // queued chat message could be claimed in the window between the task
 // flipping to 'completed' and chat_session.session_id being refreshed,
 // causing the new task to resume against a stale (or NULL) session.
-func (s *TaskService) CompleteTask(ctx context.Context, taskID pgtype.UUID, result []byte, sessionID, workDir string) (*db.AgentTaskQueue, error) {
+func (s *TaskService) CompleteTask(ctx context.Context, taskID pgtype.UUID, result []byte, sessionID, workDir string, suppressIssueComment ...bool) (*db.AgentTaskQueue, error) {
 	var task db.AgentTaskQueue
 	if err := s.runInTx(ctx, func(qtx *db.Queries) error {
 		t, err := qtx.CompleteAgentTask(ctx, db.CompleteAgentTaskParams{
@@ -744,7 +841,8 @@ func (s *TaskService) CompleteTask(ctx context.Context, taskID pgtype.UUID, resu
 	// tasks, TriggerCommentID threads the fallback under the original comment;
 	// for assignment-triggered tasks it is NULL and the fallback is top-level.
 	// Chat tasks have no IssueID and are handled separately below.
-	if task.IssueID.Valid {
+	suppressLegacyComment := len(suppressIssueComment) > 0 && suppressIssueComment[0]
+	if task.IssueID.Valid && !suppressLegacyComment {
 		agentCommented, _ := s.Queries.HasAgentCommentedSince(ctx, db.HasAgentCommentedSinceParams{
 			IssueID:  task.IssueID,
 			AuthorID: task.AgentID,
@@ -825,7 +923,7 @@ func (s *TaskService) CompleteTask(ctx context.Context, taskID pgtype.UUID, resu
 //
 // failureReason is a coarse classifier consumed by the auto-retry path.
 // Pass "" when unknown (treated as 'agent_error').
-func (s *TaskService) FailTask(ctx context.Context, taskID pgtype.UUID, errMsg, sessionID, workDir, failureReason string) (*db.AgentTaskQueue, error) {
+func (s *TaskService) FailTask(ctx context.Context, taskID pgtype.UUID, errMsg, sessionID, workDir, failureReason string, suppressIssueComment ...bool) (*db.AgentTaskQueue, error) {
 	var task db.AgentTaskQueue
 	if err := s.runInTx(ctx, func(qtx *db.Queries) error {
 		t, err := qtx.FailAgentTask(ctx, db.FailAgentTaskParams{
@@ -897,7 +995,8 @@ func (s *TaskService) FailTask(ctx context.Context, taskID pgtype.UUID, errMsg, 
 	// the new task will surface its own status to the user, and we don't
 	// want to spam the issue with "task timed out" messages on every
 	// daemon hiccup.
-	if errMsg != "" && task.IssueID.Valid && retried == nil {
+	suppressLegacyComment := len(suppressIssueComment) > 0 && suppressIssueComment[0]
+	if errMsg != "" && task.IssueID.Valid && retried == nil && !suppressLegacyComment {
 		s.createAgentComment(ctx, task.IssueID, task.AgentID, redact.Text(errMsg), "system")
 	}
 
@@ -983,6 +1082,12 @@ func (s *TaskService) MaybeRetryFailedTask(ctx context.Context, parent db.AgentT
 		reason = parent.FailureReason.String
 	}
 	if !retryableReasons[reason] {
+		return nil, nil
+	}
+	// Brain owns retries for correlated effects. Spawning a legacy child here
+	// would create a second run outside the effect_id uniqueness guard and make
+	// recovery ambiguous again.
+	if parent.EffectID.Valid {
 		return nil, nil
 	}
 	if parent.Attempt >= parent.MaxAttempts {
@@ -1075,6 +1180,79 @@ func (s *TaskService) RerunIssue(ctx context.Context, issueID pgtype.UUID, trigg
 		"task_id", util.UUIDToString(task.ID),
 		"issue_id", util.UUIDToString(issueID),
 		"agent_id", util.UUIDToString(issue.AssigneeID),
+		"cancelled_prior", len(cancelled),
+	)
+	return &task, nil
+}
+
+// RerunIssueCorrelated is the idempotent Brain variant of RerunIssue. The
+// effect-scoped advisory lock must be taken before cancelling prior tasks:
+// otherwise two concurrent retries could let the loser cancel the winner's
+// newly inserted row. Once an effect exists, its row is returned unchanged
+// regardless of status and no cancellation side effects are replayed.
+func (s *TaskService) RerunIssueCorrelated(ctx context.Context, issueID pgtype.UUID, triggerCommentID pgtype.UUID, forceFresh bool, correlation RunCorrelation) (*db.AgentTaskQueue, error) {
+	if correlation.EffectID == "" || correlation.BindingGeneration < 1 || correlation.AgentRole == "" {
+		return nil, fmt.Errorf("effect_id, positive binding_generation, and agent_role are required")
+	}
+
+	var task db.AgentTaskQueue
+	var cancelled []db.AgentTaskQueue
+	inserted := false
+	operation := func(q *db.Queries) error {
+		if s.TxStarter != nil {
+			if err := q.AcquireAgentTaskEffectLock(ctx, correlation.EffectID); err != nil {
+				return fmt.Errorf("lock correlated rerun: %w", err)
+			}
+		}
+		existing, err := q.GetAgentTaskByEffectID(ctx, pgtype.Text{String: correlation.EffectID, Valid: true})
+		if err == nil {
+			if err := validateRunCorrelation(existing, issueID, correlation); err != nil {
+				return err
+			}
+			task = existing
+			return nil
+		}
+		if !errors.Is(err, pgx.ErrNoRows) {
+			return fmt.Errorf("lookup correlated rerun: %w", err)
+		}
+
+		issue, err := q.GetIssue(ctx, issueID)
+		if err != nil {
+			return fmt.Errorf("load issue: %w", err)
+		}
+		if !issue.AssigneeID.Valid || issue.AssigneeType.String != "agent" {
+			return fmt.Errorf("issue is not assigned to an agent")
+		}
+
+		cancelled, err = q.CancelAgentTasksByIssueAndAgent(ctx, db.CancelAgentTasksByIssueAndAgentParams{
+			IssueID: issueID,
+			AgentID: issue.AssigneeID,
+		})
+		if err != nil {
+			return fmt.Errorf("cancel prior tasks: %w", err)
+		}
+
+		task, inserted, err = s.createCorrelatedIssueTask(ctx, q, issue, triggerCommentID, forceFresh, correlation)
+		return err
+	}
+	if err := s.runInTx(ctx, operation); err != nil {
+		return nil, err
+	}
+
+	for _, previous := range cancelled {
+		s.ReconcileAgentStatus(ctx, previous.AgentID)
+		s.broadcastTaskEvent(ctx, protocol.EventTaskCancelled, previous)
+	}
+	if inserted {
+		s.broadcastTaskEvent(ctx, protocol.EventTaskQueued, task)
+		s.notifyTaskAvailable(task)
+	}
+	slog.Info("correlated issue rerun resolved",
+		"task_id", util.UUIDToString(task.ID),
+		"issue_id", util.UUIDToString(issueID),
+		"agent_id", util.UUIDToString(task.AgentID),
+		"effect_id", correlation.EffectID,
+		"inserted", inserted,
 		"cancelled_prior", len(cancelled),
 	)
 	return &task, nil

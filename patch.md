@@ -1640,3 +1640,54 @@ auto-memory). На macOS это скрывал Keychain (claude сам нахо�
 
 Фикс: исключение в фильтре — `CLAUDE_CODE_OAUTH_TOKEN` пропускается к спавнутому claude.
 Остальные `CLAUDE_CODE_*` по-прежнему фильтруются и переустанавливаются демоном.
+
+---
+
+### Патч 50 — run-correlation + daemon Tracker-truth wiring
+
+Обе ветки по умолчанию выключены: до cutover существующий dispatch/prompt/comment path
+не меняется.
+
+**Run-correlation (`AITO1_RUN_CORRELATION`, default `false`):**
+- миграция `server/migrations/074_agent_task_run_correlation.{up,down}.sql` добавляет
+  nullable `effect_id`, `binding_generation`, `agent_role` и partial UNIQUE по
+  `effect_id IS NOT NULL`; все DDL-операции идемпотентны. Выбран глобальный ключ
+  `effect_id`, потому что это PK durable FSM effect в Brain: повтор с изменёнными
+  generation/role должен конфликтовать, а не выглядеть отдельным прогоном;
+- `server/pkg/db/queries/agent.sql` + сгенерированный sqlc-код — конфликтный INSERT
+  возвращает существующий task-run независимо от статуса; correlated rerun сериализован
+  transaction-scoped advisory lock до отмены предыдущих прогонов;
+- `server/internal/service/task.go`, `server/internal/handler/{issue,task_lifecycle,agent}.go`,
+  `server/cmd/server/router.go` — корреляция проведена через assignment-dispatch и
+  rerun-session. Повторный dispatch возвращает task id в `X-AITO1-Task-Run-ID`, rerun —
+  существующую строку; `/api/issues/{id}/task-runs` отдаёт три correlation-поля.
+  Legacy-запрос без `effect_id` идёт прежним путём.
+
+**Tracker-truth (`AITO1_TRACKER_TRUTH`, default `false`):**
+- `server/internal/daemon/{config,runtime_context,daemon,client,types}.go` — перед стартом
+  сессии daemon читает `GET <AITO1_BRAIN_URL>/api/runtime-context?task_id=<queue-row-id>`
+  с daemon-service Bearer и correlation headers; `AITO1_DAEMON_SERVICE_TOKEN` обязателен
+  только при включённом флаге, `AITO1_BRAIN_URL` по умолчанию `http://127.0.0.1:8082`;
+- в agent user-message попадает только сериализованный `untrusted` JSON с явной пометкой
+  untrusted-data; role instructions остаются статическим system/developer prompt. Legacy
+  Multica issue/thread runtime-файлы и resume/workdir не переиспользуются при cutover.
+  В режиме флага разрешены backends с реальным отдельным system/developer channel
+  (`claude`, `codex`, `opencode`, `pi`); backend, который смешивает роли, fail-closed;
+- короткоживущий `X-AITO1-Task-Token` передаётся как `AITO1_TASK_TOKEN`; daemon-service
+  token и stale task-token фильтруются из child env (`server/pkg/agent/claude.go`), custom
+  env не может их переопределить;
+- любой provider error, включая 503, даёт `runtime_context_unavailable`: agent backend не
+  создаётся, Multica fallback не используется. Complete/fail callback с `tracker_truth`
+  отключает legacy result/error comment; correlated failures не запускают legacy auto-retry.
+
+**Тесты/проверки:** миграции 001–074 применены к чистой временной PostgreSQL, повторное
+применение 074 успешно; sequential/concurrent create и concurrent rerun дают одну строку;
+task-runs API возвращает correlation-поля; daemon HTTP mock проверяет user/system boundary,
+task-token, flag-off legacy path и fail-closed 503; child-env фильтр и lifecycle callback
+покрыты тестами. `go build ./...` — PASS; целевые `go test` daemon/execenv/agent,
+cmd/server correlation+legacy-rerun и handler API — PASS.
+
+Полный `go test ./cmd/server/...` отдельно упирается в существующую test-isolation проблему:
+ранний тест архивирует общий fixture-agent, после чего rerun-тесты получают `agent is archived`;
+изолированный прогон тех же rerun/correlation тестов на чистой БД зелёный. На VM ничего не
+собиралось и не деплоилось. Реальный Brain↔daemon↔Tracker e2e оставлен на cutover.

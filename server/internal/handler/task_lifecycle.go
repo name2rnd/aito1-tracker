@@ -2,13 +2,43 @@ package handler
 
 import (
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/multica-ai/multica/server/internal/service"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
 )
+
+type RunCorrelationRequest struct {
+	EffectID          *string `json:"effect_id"`
+	BindingGeneration *int32  `json:"binding_generation"`
+	AgentRole         *string `json:"agent_role"`
+}
+
+func (h *Handler) runCorrelation(req RunCorrelationRequest) (*service.RunCorrelation, error) {
+	if !h.cfg.AITO1RunCorrelation {
+		return nil, nil
+	}
+	if req.EffectID == nil && req.BindingGeneration == nil && req.AgentRole == nil {
+		return nil, nil
+	}
+	if req.EffectID == nil || req.BindingGeneration == nil || req.AgentRole == nil {
+		return nil, fmt.Errorf("effect_id, binding_generation, and agent_role must be provided together")
+	}
+	correlation := service.RunCorrelation{
+		EffectID:          strings.TrimSpace(*req.EffectID),
+		BindingGeneration: *req.BindingGeneration,
+		AgentRole:         strings.TrimSpace(*req.AgentRole),
+	}
+	if correlation.EffectID == "" || correlation.BindingGeneration < 1 || correlation.AgentRole == "" {
+		return nil, fmt.Errorf("effect_id and agent_role must be non-empty and binding_generation must be positive")
+	}
+	return &correlation, nil
+}
 
 // RecoverOrphanedTasks is called by the daemon at startup for each runtime
 // it owns. It atomically fails any dispatched/running tasks the server still
@@ -111,18 +141,31 @@ func (h *Handler) RerunIssue(w http.ResponseWriter, r *http.Request) {
 	}
 
 	forceFresh := true
+	var correlationReq RunCorrelationRequest
 	if r.Body != nil {
 		var req struct {
 			ForceFresh *bool `json:"force_fresh"`
+			RunCorrelationRequest
 		}
 		// An empty or malformed body keeps the default — the endpoint
 		// historically took no body at all.
 		if err := json.NewDecoder(r.Body).Decode(&req); err == nil && req.ForceFresh != nil {
 			forceFresh = *req.ForceFresh
 		}
+		correlationReq = req.RunCorrelationRequest
 	}
 
-	task, err := h.TaskService.RerunIssue(r.Context(), issue.ID, pgtype.UUID{}, forceFresh)
+	correlation, err := h.runCorrelation(correlationReq)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	var task *db.AgentTaskQueue
+	if correlation != nil {
+		task, err = h.TaskService.RerunIssueCorrelated(r.Context(), issue.ID, pgtype.UUID{}, forceFresh, *correlation)
+	} else {
+		task, err = h.TaskService.RerunIssue(r.Context(), issue.ID, pgtype.UUID{}, forceFresh)
+	}
 	if err != nil {
 		slog.Warn("issue rerun failed", "issue_id", id, "error", err)
 		writeError(w, http.StatusBadRequest, err.Error())

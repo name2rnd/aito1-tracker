@@ -11,6 +11,17 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const acquireAgentTaskEffectLock = `-- name: AcquireAgentTaskEffectLock :exec
+SELECT pg_advisory_xact_lock(hashtextextended($1, 0))
+`
+
+// Serializes correlated reruns before they cancel an existing pending run.
+// The lock is transaction-scoped and never survives commit/rollback.
+func (q *Queries) AcquireAgentTaskEffectLock(ctx context.Context, hashtextextended string) error {
+	_, err := q.db.Exec(ctx, acquireAgentTaskEffectLock, hashtextextended)
+	return err
+}
+
 const archiveAgent = `-- name: ArchiveAgent :one
 UPDATE agent SET archived_at = now(), archived_by = $2, updated_at = now()
 WHERE id = $1
@@ -55,7 +66,7 @@ const cancelAgentTask = `-- name: CancelAgentTask :one
 UPDATE agent_task_queue
 SET status = 'cancelled', completed_at = now()
 WHERE id = $1 AND status IN ('queued', 'dispatched', 'running')
-RETURNING id, agent_id, issue_id, status, priority, dispatched_at, started_at, completed_at, result, error, created_at, context, runtime_id, session_id, work_dir, trigger_comment_id, chat_session_id, autopilot_run_id, attempt, max_attempts, parent_task_id, failure_reason, last_heartbeat_at, trigger_summary, force_fresh_session
+RETURNING id, agent_id, issue_id, status, priority, dispatched_at, started_at, completed_at, result, error, created_at, context, runtime_id, session_id, work_dir, trigger_comment_id, chat_session_id, autopilot_run_id, attempt, max_attempts, parent_task_id, failure_reason, last_heartbeat_at, trigger_summary, force_fresh_session, effect_id, binding_generation, agent_role
 `
 
 func (q *Queries) CancelAgentTask(ctx context.Context, id pgtype.UUID) (AgentTaskQueue, error) {
@@ -87,6 +98,9 @@ func (q *Queries) CancelAgentTask(ctx context.Context, id pgtype.UUID) (AgentTas
 		&i.LastHeartbeatAt,
 		&i.TriggerSummary,
 		&i.ForceFreshSession,
+		&i.EffectID,
+		&i.BindingGeneration,
+		&i.AgentRole,
 	)
 	return i, err
 }
@@ -95,7 +109,7 @@ const cancelAgentTasksByAgent = `-- name: CancelAgentTasksByAgent :many
 UPDATE agent_task_queue
 SET status = 'cancelled', completed_at = now()
 WHERE agent_id = $1 AND status IN ('queued', 'dispatched', 'running')
-RETURNING id, agent_id, issue_id, status, priority, dispatched_at, started_at, completed_at, result, error, created_at, context, runtime_id, session_id, work_dir, trigger_comment_id, chat_session_id, autopilot_run_id, attempt, max_attempts, parent_task_id, failure_reason, last_heartbeat_at, trigger_summary, force_fresh_session
+RETURNING id, agent_id, issue_id, status, priority, dispatched_at, started_at, completed_at, result, error, created_at, context, runtime_id, session_id, work_dir, trigger_comment_id, chat_session_id, autopilot_run_id, attempt, max_attempts, parent_task_id, failure_reason, last_heartbeat_at, trigger_summary, force_fresh_session, effect_id, binding_generation, agent_role
 `
 
 // Bulk-cancel every active (queued/dispatched/running) task for an agent.
@@ -138,6 +152,9 @@ func (q *Queries) CancelAgentTasksByAgent(ctx context.Context, agentID pgtype.UU
 			&i.LastHeartbeatAt,
 			&i.TriggerSummary,
 			&i.ForceFreshSession,
+			&i.EffectID,
+			&i.BindingGeneration,
+			&i.AgentRole,
 		); err != nil {
 			return nil, err
 		}
@@ -153,7 +170,7 @@ const cancelAgentTasksByChatSession = `-- name: CancelAgentTasksByChatSession :m
 UPDATE agent_task_queue
 SET status = 'cancelled', completed_at = now()
 WHERE chat_session_id = $1 AND status IN ('queued', 'dispatched', 'running')
-RETURNING id, agent_id, issue_id, status, priority, dispatched_at, started_at, completed_at, result, error, created_at, context, runtime_id, session_id, work_dir, trigger_comment_id, chat_session_id, autopilot_run_id, attempt, max_attempts, parent_task_id, failure_reason, last_heartbeat_at, trigger_summary, force_fresh_session
+RETURNING id, agent_id, issue_id, status, priority, dispatched_at, started_at, completed_at, result, error, created_at, context, runtime_id, session_id, work_dir, trigger_comment_id, chat_session_id, autopilot_run_id, attempt, max_attempts, parent_task_id, failure_reason, last_heartbeat_at, trigger_summary, force_fresh_session, effect_id, binding_generation, agent_role
 `
 
 // Cancels active tasks belonging to a chat session. Called from
@@ -196,6 +213,9 @@ func (q *Queries) CancelAgentTasksByChatSession(ctx context.Context, chatSession
 			&i.LastHeartbeatAt,
 			&i.TriggerSummary,
 			&i.ForceFreshSession,
+			&i.EffectID,
+			&i.BindingGeneration,
+			&i.AgentRole,
 		); err != nil {
 			return nil, err
 		}
@@ -211,7 +231,7 @@ const cancelAgentTasksByIssue = `-- name: CancelAgentTasksByIssue :many
 UPDATE agent_task_queue
 SET status = 'cancelled', completed_at = now()
 WHERE issue_id = $1 AND status IN ('queued', 'dispatched', 'running')
-RETURNING id, agent_id, issue_id, status, priority, dispatched_at, started_at, completed_at, result, error, created_at, context, runtime_id, session_id, work_dir, trigger_comment_id, chat_session_id, autopilot_run_id, attempt, max_attempts, parent_task_id, failure_reason, last_heartbeat_at, trigger_summary, force_fresh_session
+RETURNING id, agent_id, issue_id, status, priority, dispatched_at, started_at, completed_at, result, error, created_at, context, runtime_id, session_id, work_dir, trigger_comment_id, chat_session_id, autopilot_run_id, attempt, max_attempts, parent_task_id, failure_reason, last_heartbeat_at, trigger_summary, force_fresh_session, effect_id, binding_generation, agent_role
 `
 
 // Cancels every active task on the issue and returns the affected rows so the
@@ -254,6 +274,9 @@ func (q *Queries) CancelAgentTasksByIssue(ctx context.Context, issueID pgtype.UU
 			&i.LastHeartbeatAt,
 			&i.TriggerSummary,
 			&i.ForceFreshSession,
+			&i.EffectID,
+			&i.BindingGeneration,
+			&i.AgentRole,
 		); err != nil {
 			return nil, err
 		}
@@ -269,7 +292,7 @@ const cancelAgentTasksByIssueAndAgent = `-- name: CancelAgentTasksByIssueAndAgen
 UPDATE agent_task_queue
 SET status = 'cancelled', completed_at = now()
 WHERE issue_id = $1 AND agent_id = $2 AND status IN ('queued', 'dispatched', 'running')
-RETURNING id, agent_id, issue_id, status, priority, dispatched_at, started_at, completed_at, result, error, created_at, context, runtime_id, session_id, work_dir, trigger_comment_id, chat_session_id, autopilot_run_id, attempt, max_attempts, parent_task_id, failure_reason, last_heartbeat_at, trigger_summary, force_fresh_session
+RETURNING id, agent_id, issue_id, status, priority, dispatched_at, started_at, completed_at, result, error, created_at, context, runtime_id, session_id, work_dir, trigger_comment_id, chat_session_id, autopilot_run_id, attempt, max_attempts, parent_task_id, failure_reason, last_heartbeat_at, trigger_summary, force_fresh_session, effect_id, binding_generation, agent_role
 `
 
 type CancelAgentTasksByIssueAndAgentParams struct {
@@ -316,6 +339,9 @@ func (q *Queries) CancelAgentTasksByIssueAndAgent(ctx context.Context, arg Cance
 			&i.LastHeartbeatAt,
 			&i.TriggerSummary,
 			&i.ForceFreshSession,
+			&i.EffectID,
+			&i.BindingGeneration,
+			&i.AgentRole,
 		); err != nil {
 			return nil, err
 		}
@@ -331,7 +357,7 @@ const cancelAgentTasksByTriggerComment = `-- name: CancelAgentTasksByTriggerComm
 UPDATE agent_task_queue
 SET status = 'cancelled', completed_at = now()
 WHERE trigger_comment_id = $1 AND status IN ('queued', 'dispatched', 'running')
-RETURNING id, agent_id, issue_id, status, priority, dispatched_at, started_at, completed_at, result, error, created_at, context, runtime_id, session_id, work_dir, trigger_comment_id, chat_session_id, autopilot_run_id, attempt, max_attempts, parent_task_id, failure_reason, last_heartbeat_at, trigger_summary, force_fresh_session
+RETURNING id, agent_id, issue_id, status, priority, dispatched_at, started_at, completed_at, result, error, created_at, context, runtime_id, session_id, work_dir, trigger_comment_id, chat_session_id, autopilot_run_id, attempt, max_attempts, parent_task_id, failure_reason, last_heartbeat_at, trigger_summary, force_fresh_session, effect_id, binding_generation, agent_role
 `
 
 // Cancels active tasks whose trigger is the given comment. Called when a
@@ -374,6 +400,9 @@ func (q *Queries) CancelAgentTasksByTriggerComment(ctx context.Context, triggerC
 			&i.LastHeartbeatAt,
 			&i.TriggerSummary,
 			&i.ForceFreshSession,
+			&i.EffectID,
+			&i.BindingGeneration,
+			&i.AgentRole,
 		); err != nil {
 			return nil, err
 		}
@@ -412,7 +441,7 @@ WHERE id = (
     LIMIT 1
     FOR UPDATE SKIP LOCKED
 )
-RETURNING id, agent_id, issue_id, status, priority, dispatched_at, started_at, completed_at, result, error, created_at, context, runtime_id, session_id, work_dir, trigger_comment_id, chat_session_id, autopilot_run_id, attempt, max_attempts, parent_task_id, failure_reason, last_heartbeat_at, trigger_summary, force_fresh_session
+RETURNING id, agent_id, issue_id, status, priority, dispatched_at, started_at, completed_at, result, error, created_at, context, runtime_id, session_id, work_dir, trigger_comment_id, chat_session_id, autopilot_run_id, attempt, max_attempts, parent_task_id, failure_reason, last_heartbeat_at, trigger_summary, force_fresh_session, effect_id, binding_generation, agent_role
 `
 
 // Claims the next queued task for an agent, enforcing per-(issue, agent) serialization:
@@ -453,6 +482,9 @@ func (q *Queries) ClaimAgentTask(ctx context.Context, agentID pgtype.UUID) (Agen
 		&i.LastHeartbeatAt,
 		&i.TriggerSummary,
 		&i.ForceFreshSession,
+		&i.EffectID,
+		&i.BindingGeneration,
+		&i.AgentRole,
 	)
 	return i, err
 }
@@ -496,7 +528,7 @@ const completeAgentTask = `-- name: CompleteAgentTask :one
 UPDATE agent_task_queue
 SET status = 'completed', completed_at = now(), result = $2, session_id = $3, work_dir = $4
 WHERE id = $1 AND status = 'running'
-RETURNING id, agent_id, issue_id, status, priority, dispatched_at, started_at, completed_at, result, error, created_at, context, runtime_id, session_id, work_dir, trigger_comment_id, chat_session_id, autopilot_run_id, attempt, max_attempts, parent_task_id, failure_reason, last_heartbeat_at, trigger_summary, force_fresh_session
+RETURNING id, agent_id, issue_id, status, priority, dispatched_at, started_at, completed_at, result, error, created_at, context, runtime_id, session_id, work_dir, trigger_comment_id, chat_session_id, autopilot_run_id, attempt, max_attempts, parent_task_id, failure_reason, last_heartbeat_at, trigger_summary, force_fresh_session, effect_id, binding_generation, agent_role
 `
 
 type CompleteAgentTaskParams struct {
@@ -540,6 +572,9 @@ func (q *Queries) CompleteAgentTask(ctx context.Context, arg CompleteAgentTaskPa
 		&i.LastHeartbeatAt,
 		&i.TriggerSummary,
 		&i.ForceFreshSession,
+		&i.EffectID,
+		&i.BindingGeneration,
+		&i.AgentRole,
 	)
 	return i, err
 }
@@ -638,7 +673,7 @@ VALUES (
     $6,
     COALESCE($7::boolean, FALSE)
 )
-RETURNING id, agent_id, issue_id, status, priority, dispatched_at, started_at, completed_at, result, error, created_at, context, runtime_id, session_id, work_dir, trigger_comment_id, chat_session_id, autopilot_run_id, attempt, max_attempts, parent_task_id, failure_reason, last_heartbeat_at, trigger_summary, force_fresh_session
+RETURNING id, agent_id, issue_id, status, priority, dispatched_at, started_at, completed_at, result, error, created_at, context, runtime_id, session_id, work_dir, trigger_comment_id, chat_session_id, autopilot_run_id, attempt, max_attempts, parent_task_id, failure_reason, last_heartbeat_at, trigger_summary, force_fresh_session, effect_id, binding_generation, agent_role
 `
 
 type CreateAgentTaskParams struct {
@@ -688,14 +723,73 @@ func (q *Queries) CreateAgentTask(ctx context.Context, arg CreateAgentTaskParams
 		&i.LastHeartbeatAt,
 		&i.TriggerSummary,
 		&i.ForceFreshSession,
+		&i.EffectID,
+		&i.BindingGeneration,
+		&i.AgentRole,
 	)
+	return i, err
+}
+
+const createCorrelatedAgentTask = `-- name: CreateCorrelatedAgentTask :one
+INSERT INTO agent_task_queue (
+    agent_id, runtime_id, issue_id, status, priority, trigger_comment_id,
+    trigger_summary, force_fresh_session, effect_id, binding_generation,
+    agent_role, context
+)
+VALUES (
+    $1, $2, $3, 'queued', $4, $8,
+    $9,
+    COALESCE($10::boolean, FALSE),
+    $5, $6, $7, jsonb_build_object('effect_id', $5::text)
+)
+ON CONFLICT (effect_id) WHERE effect_id IS NOT NULL
+DO UPDATE SET effect_id = EXCLUDED.effect_id
+RETURNING id, (xmax = 0) AS inserted
+`
+
+type CreateCorrelatedAgentTaskParams struct {
+	AgentID           pgtype.UUID `json:"agent_id"`
+	RuntimeID         pgtype.UUID `json:"runtime_id"`
+	IssueID           pgtype.UUID `json:"issue_id"`
+	Priority          int32       `json:"priority"`
+	EffectID          pgtype.Text `json:"effect_id"`
+	BindingGeneration pgtype.Int4 `json:"binding_generation"`
+	AgentRole         pgtype.Text `json:"agent_role"`
+	TriggerCommentID  pgtype.UUID `json:"trigger_comment_id"`
+	TriggerSummary    pgtype.Text `json:"trigger_summary"`
+	ForceFreshSession pgtype.Bool `json:"force_fresh_session"`
+}
+
+type CreateCorrelatedAgentTaskRow struct {
+	ID       pgtype.UUID `json:"id"`
+	Inserted bool        `json:"inserted"`
+}
+
+// effect_id is globally unique in Brain's durable effect outbox. The no-op
+// update makes a duplicate request return the existing row even when another
+// request inserted it concurrently or the run has since become terminal.
+func (q *Queries) CreateCorrelatedAgentTask(ctx context.Context, arg CreateCorrelatedAgentTaskParams) (CreateCorrelatedAgentTaskRow, error) {
+	row := q.db.QueryRow(ctx, createCorrelatedAgentTask,
+		arg.AgentID,
+		arg.RuntimeID,
+		arg.IssueID,
+		arg.Priority,
+		arg.EffectID,
+		arg.BindingGeneration,
+		arg.AgentRole,
+		arg.TriggerCommentID,
+		arg.TriggerSummary,
+		arg.ForceFreshSession,
+	)
+	var i CreateCorrelatedAgentTaskRow
+	err := row.Scan(&i.ID, &i.Inserted)
 	return i, err
 }
 
 const createQuickCreateTask = `-- name: CreateQuickCreateTask :one
 INSERT INTO agent_task_queue (agent_id, runtime_id, issue_id, status, priority, context)
 VALUES ($1, $2, NULL, 'queued', $3, $4)
-RETURNING id, agent_id, issue_id, status, priority, dispatched_at, started_at, completed_at, result, error, created_at, context, runtime_id, session_id, work_dir, trigger_comment_id, chat_session_id, autopilot_run_id, attempt, max_attempts, parent_task_id, failure_reason, last_heartbeat_at, trigger_summary, force_fresh_session
+RETURNING id, agent_id, issue_id, status, priority, dispatched_at, started_at, completed_at, result, error, created_at, context, runtime_id, session_id, work_dir, trigger_comment_id, chat_session_id, autopilot_run_id, attempt, max_attempts, parent_task_id, failure_reason, last_heartbeat_at, trigger_summary, force_fresh_session, effect_id, binding_generation, agent_role
 `
 
 type CreateQuickCreateTaskParams struct {
@@ -742,6 +836,9 @@ func (q *Queries) CreateQuickCreateTask(ctx context.Context, arg CreateQuickCrea
 		&i.LastHeartbeatAt,
 		&i.TriggerSummary,
 		&i.ForceFreshSession,
+		&i.EffectID,
+		&i.BindingGeneration,
+		&i.AgentRole,
 	)
 	return i, err
 }
@@ -760,7 +857,7 @@ SELECT
     p.attempt + 1, p.max_attempts, p.id
 FROM agent_task_queue p
 WHERE p.id = $1
-RETURNING id, agent_id, issue_id, status, priority, dispatched_at, started_at, completed_at, result, error, created_at, context, runtime_id, session_id, work_dir, trigger_comment_id, chat_session_id, autopilot_run_id, attempt, max_attempts, parent_task_id, failure_reason, last_heartbeat_at, trigger_summary, force_fresh_session
+RETURNING id, agent_id, issue_id, status, priority, dispatched_at, started_at, completed_at, result, error, created_at, context, runtime_id, session_id, work_dir, trigger_comment_id, chat_session_id, autopilot_run_id, attempt, max_attempts, parent_task_id, failure_reason, last_heartbeat_at, trigger_summary, force_fresh_session, effect_id, binding_generation, agent_role
 `
 
 // Clones a parent task into a fresh queued attempt. Carries forward the
@@ -796,6 +893,9 @@ func (q *Queries) CreateRetryTask(ctx context.Context, id pgtype.UUID) (AgentTas
 		&i.LastHeartbeatAt,
 		&i.TriggerSummary,
 		&i.ForceFreshSession,
+		&i.EffectID,
+		&i.BindingGeneration,
+		&i.AgentRole,
 	)
 	return i, err
 }
@@ -809,7 +909,7 @@ SET status = 'failed',
     session_id = COALESCE($4, session_id),
     work_dir = COALESCE($5, work_dir)
 WHERE id = $1 AND status IN ('dispatched', 'running')
-RETURNING id, agent_id, issue_id, status, priority, dispatched_at, started_at, completed_at, result, error, created_at, context, runtime_id, session_id, work_dir, trigger_comment_id, chat_session_id, autopilot_run_id, attempt, max_attempts, parent_task_id, failure_reason, last_heartbeat_at, trigger_summary, force_fresh_session
+RETURNING id, agent_id, issue_id, status, priority, dispatched_at, started_at, completed_at, result, error, created_at, context, runtime_id, session_id, work_dir, trigger_comment_id, chat_session_id, autopilot_run_id, attempt, max_attempts, parent_task_id, failure_reason, last_heartbeat_at, trigger_summary, force_fresh_session, effect_id, binding_generation, agent_role
 `
 
 type FailAgentTaskParams struct {
@@ -864,6 +964,9 @@ func (q *Queries) FailAgentTask(ctx context.Context, arg FailAgentTaskParams) (A
 		&i.LastHeartbeatAt,
 		&i.TriggerSummary,
 		&i.ForceFreshSession,
+		&i.EffectID,
+		&i.BindingGeneration,
+		&i.AgentRole,
 	)
 	return i, err
 }
@@ -874,7 +977,7 @@ SET status = 'failed', completed_at = now(), error = 'task timed out',
     failure_reason = 'timeout'
 WHERE (status = 'dispatched' AND dispatched_at < now() - make_interval(secs => $1::double precision))
    OR (status = 'running' AND COALESCE(last_heartbeat_at, started_at) < now() - make_interval(secs => $2::double precision))
-RETURNING id, agent_id, issue_id, status, priority, dispatched_at, started_at, completed_at, result, error, created_at, context, runtime_id, session_id, work_dir, trigger_comment_id, chat_session_id, autopilot_run_id, attempt, max_attempts, parent_task_id, failure_reason, last_heartbeat_at, trigger_summary, force_fresh_session
+RETURNING id, agent_id, issue_id, status, priority, dispatched_at, started_at, completed_at, result, error, created_at, context, runtime_id, session_id, work_dir, trigger_comment_id, chat_session_id, autopilot_run_id, attempt, max_attempts, parent_task_id, failure_reason, last_heartbeat_at, trigger_summary, force_fresh_session, effect_id, binding_generation, agent_role
 `
 
 type FailStaleTasksParams struct {
@@ -923,6 +1026,9 @@ func (q *Queries) FailStaleTasks(ctx context.Context, arg FailStaleTasksParams) 
 			&i.LastHeartbeatAt,
 			&i.TriggerSummary,
 			&i.ForceFreshSession,
+			&i.EffectID,
+			&i.BindingGeneration,
+			&i.AgentRole,
 		); err != nil {
 			return nil, err
 		}
@@ -1008,7 +1114,7 @@ func (q *Queries) GetAgentInWorkspace(ctx context.Context, arg GetAgentInWorkspa
 }
 
 const getAgentTask = `-- name: GetAgentTask :one
-SELECT id, agent_id, issue_id, status, priority, dispatched_at, started_at, completed_at, result, error, created_at, context, runtime_id, session_id, work_dir, trigger_comment_id, chat_session_id, autopilot_run_id, attempt, max_attempts, parent_task_id, failure_reason, last_heartbeat_at, trigger_summary, force_fresh_session FROM agent_task_queue
+SELECT id, agent_id, issue_id, status, priority, dispatched_at, started_at, completed_at, result, error, created_at, context, runtime_id, session_id, work_dir, trigger_comment_id, chat_session_id, autopilot_run_id, attempt, max_attempts, parent_task_id, failure_reason, last_heartbeat_at, trigger_summary, force_fresh_session, effect_id, binding_generation, agent_role FROM agent_task_queue
 WHERE id = $1
 `
 
@@ -1041,6 +1147,50 @@ func (q *Queries) GetAgentTask(ctx context.Context, id pgtype.UUID) (AgentTaskQu
 		&i.LastHeartbeatAt,
 		&i.TriggerSummary,
 		&i.ForceFreshSession,
+		&i.EffectID,
+		&i.BindingGeneration,
+		&i.AgentRole,
+	)
+	return i, err
+}
+
+const getAgentTaskByEffectID = `-- name: GetAgentTaskByEffectID :one
+SELECT id, agent_id, issue_id, status, priority, dispatched_at, started_at, completed_at, result, error, created_at, context, runtime_id, session_id, work_dir, trigger_comment_id, chat_session_id, autopilot_run_id, attempt, max_attempts, parent_task_id, failure_reason, last_heartbeat_at, trigger_summary, force_fresh_session, effect_id, binding_generation, agent_role FROM agent_task_queue
+WHERE effect_id = $1
+`
+
+func (q *Queries) GetAgentTaskByEffectID(ctx context.Context, effectID pgtype.Text) (AgentTaskQueue, error) {
+	row := q.db.QueryRow(ctx, getAgentTaskByEffectID, effectID)
+	var i AgentTaskQueue
+	err := row.Scan(
+		&i.ID,
+		&i.AgentID,
+		&i.IssueID,
+		&i.Status,
+		&i.Priority,
+		&i.DispatchedAt,
+		&i.StartedAt,
+		&i.CompletedAt,
+		&i.Result,
+		&i.Error,
+		&i.CreatedAt,
+		&i.Context,
+		&i.RuntimeID,
+		&i.SessionID,
+		&i.WorkDir,
+		&i.TriggerCommentID,
+		&i.ChatSessionID,
+		&i.AutopilotRunID,
+		&i.Attempt,
+		&i.MaxAttempts,
+		&i.ParentTaskID,
+		&i.FailureReason,
+		&i.LastHeartbeatAt,
+		&i.TriggerSummary,
+		&i.ForceFreshSession,
+		&i.EffectID,
+		&i.BindingGeneration,
+		&i.AgentRole,
 	)
 	return i, err
 }
@@ -1259,7 +1409,7 @@ func (q *Queries) LinkTaskToIssue(ctx context.Context, arg LinkTaskToIssueParams
 }
 
 const listActiveTasksByIssue = `-- name: ListActiveTasksByIssue :many
-SELECT id, agent_id, issue_id, status, priority, dispatched_at, started_at, completed_at, result, error, created_at, context, runtime_id, session_id, work_dir, trigger_comment_id, chat_session_id, autopilot_run_id, attempt, max_attempts, parent_task_id, failure_reason, last_heartbeat_at, trigger_summary, force_fresh_session FROM agent_task_queue
+SELECT id, agent_id, issue_id, status, priority, dispatched_at, started_at, completed_at, result, error, created_at, context, runtime_id, session_id, work_dir, trigger_comment_id, chat_session_id, autopilot_run_id, attempt, max_attempts, parent_task_id, failure_reason, last_heartbeat_at, trigger_summary, force_fresh_session, effect_id, binding_generation, agent_role FROM agent_task_queue
 WHERE issue_id = $1 AND status IN ('dispatched', 'running')
 ORDER BY created_at DESC
 `
@@ -1299,6 +1449,9 @@ func (q *Queries) ListActiveTasksByIssue(ctx context.Context, issueID pgtype.UUI
 			&i.LastHeartbeatAt,
 			&i.TriggerSummary,
 			&i.ForceFreshSession,
+			&i.EffectID,
+			&i.BindingGeneration,
+			&i.AgentRole,
 		); err != nil {
 			return nil, err
 		}
@@ -1311,7 +1464,7 @@ func (q *Queries) ListActiveTasksByIssue(ctx context.Context, issueID pgtype.UUI
 }
 
 const listAgentTasks = `-- name: ListAgentTasks :many
-SELECT id, agent_id, issue_id, status, priority, dispatched_at, started_at, completed_at, result, error, created_at, context, runtime_id, session_id, work_dir, trigger_comment_id, chat_session_id, autopilot_run_id, attempt, max_attempts, parent_task_id, failure_reason, last_heartbeat_at, trigger_summary, force_fresh_session FROM agent_task_queue
+SELECT id, agent_id, issue_id, status, priority, dispatched_at, started_at, completed_at, result, error, created_at, context, runtime_id, session_id, work_dir, trigger_comment_id, chat_session_id, autopilot_run_id, attempt, max_attempts, parent_task_id, failure_reason, last_heartbeat_at, trigger_summary, force_fresh_session, effect_id, binding_generation, agent_role FROM agent_task_queue
 WHERE agent_id = $1
 ORDER BY created_at DESC
 `
@@ -1351,6 +1504,9 @@ func (q *Queries) ListAgentTasks(ctx context.Context, agentID pgtype.UUID) ([]Ag
 			&i.LastHeartbeatAt,
 			&i.TriggerSummary,
 			&i.ForceFreshSession,
+			&i.EffectID,
+			&i.BindingGeneration,
+			&i.AgentRole,
 		); err != nil {
 			return nil, err
 		}
@@ -1459,7 +1615,7 @@ func (q *Queries) ListAllAgents(ctx context.Context, workspaceID pgtype.UUID) ([
 }
 
 const listPendingTasksByRuntime = `-- name: ListPendingTasksByRuntime :many
-SELECT id, agent_id, issue_id, status, priority, dispatched_at, started_at, completed_at, result, error, created_at, context, runtime_id, session_id, work_dir, trigger_comment_id, chat_session_id, autopilot_run_id, attempt, max_attempts, parent_task_id, failure_reason, last_heartbeat_at, trigger_summary, force_fresh_session FROM agent_task_queue
+SELECT id, agent_id, issue_id, status, priority, dispatched_at, started_at, completed_at, result, error, created_at, context, runtime_id, session_id, work_dir, trigger_comment_id, chat_session_id, autopilot_run_id, attempt, max_attempts, parent_task_id, failure_reason, last_heartbeat_at, trigger_summary, force_fresh_session, effect_id, binding_generation, agent_role FROM agent_task_queue
 WHERE runtime_id = $1 AND status IN ('queued', 'dispatched')
 ORDER BY priority DESC, created_at ASC
 `
@@ -1499,6 +1655,9 @@ func (q *Queries) ListPendingTasksByRuntime(ctx context.Context, runtimeID pgtyp
 			&i.LastHeartbeatAt,
 			&i.TriggerSummary,
 			&i.ForceFreshSession,
+			&i.EffectID,
+			&i.BindingGeneration,
+			&i.AgentRole,
 		); err != nil {
 			return nil, err
 		}
@@ -1511,7 +1670,7 @@ func (q *Queries) ListPendingTasksByRuntime(ctx context.Context, runtimeID pgtyp
 }
 
 const listQueuedClaimCandidatesByRuntime = `-- name: ListQueuedClaimCandidatesByRuntime :many
-SELECT id, agent_id, issue_id, status, priority, dispatched_at, started_at, completed_at, result, error, created_at, context, runtime_id, session_id, work_dir, trigger_comment_id, chat_session_id, autopilot_run_id, attempt, max_attempts, parent_task_id, failure_reason, last_heartbeat_at, trigger_summary, force_fresh_session FROM agent_task_queue
+SELECT id, agent_id, issue_id, status, priority, dispatched_at, started_at, completed_at, result, error, created_at, context, runtime_id, session_id, work_dir, trigger_comment_id, chat_session_id, autopilot_run_id, attempt, max_attempts, parent_task_id, failure_reason, last_heartbeat_at, trigger_summary, force_fresh_session, effect_id, binding_generation, agent_role FROM agent_task_queue
 WHERE runtime_id = $1 AND status = 'queued'
 ORDER BY priority DESC, created_at ASC
 `
@@ -1559,6 +1718,9 @@ func (q *Queries) ListQueuedClaimCandidatesByRuntime(ctx context.Context, runtim
 			&i.LastHeartbeatAt,
 			&i.TriggerSummary,
 			&i.ForceFreshSession,
+			&i.EffectID,
+			&i.BindingGeneration,
+			&i.AgentRole,
 		); err != nil {
 			return nil, err
 		}
@@ -1621,7 +1783,7 @@ func (q *Queries) ListRecentTerminalTasksByRuntime(ctx context.Context, arg List
 }
 
 const listTasksByIssue = `-- name: ListTasksByIssue :many
-SELECT id, agent_id, issue_id, status, priority, dispatched_at, started_at, completed_at, result, error, created_at, context, runtime_id, session_id, work_dir, trigger_comment_id, chat_session_id, autopilot_run_id, attempt, max_attempts, parent_task_id, failure_reason, last_heartbeat_at, trigger_summary, force_fresh_session FROM agent_task_queue
+SELECT id, agent_id, issue_id, status, priority, dispatched_at, started_at, completed_at, result, error, created_at, context, runtime_id, session_id, work_dir, trigger_comment_id, chat_session_id, autopilot_run_id, attempt, max_attempts, parent_task_id, failure_reason, last_heartbeat_at, trigger_summary, force_fresh_session, effect_id, binding_generation, agent_role FROM agent_task_queue
 WHERE issue_id = $1
 ORDER BY created_at DESC
 `
@@ -1661,6 +1823,9 @@ func (q *Queries) ListTasksByIssue(ctx context.Context, issueID pgtype.UUID) ([]
 			&i.LastHeartbeatAt,
 			&i.TriggerSummary,
 			&i.ForceFreshSession,
+			&i.EffectID,
+			&i.BindingGeneration,
+			&i.AgentRole,
 		); err != nil {
 			return nil, err
 		}
@@ -1673,15 +1838,15 @@ func (q *Queries) ListTasksByIssue(ctx context.Context, issueID pgtype.UUID) ([]
 }
 
 const listWorkspaceAgentTaskSnapshot = `-- name: ListWorkspaceAgentTaskSnapshot :many
-SELECT atq.id, atq.agent_id, atq.issue_id, atq.status, atq.priority, atq.dispatched_at, atq.started_at, atq.completed_at, atq.result, atq.error, atq.created_at, atq.context, atq.runtime_id, atq.session_id, atq.work_dir, atq.trigger_comment_id, atq.chat_session_id, atq.autopilot_run_id, atq.attempt, atq.max_attempts, atq.parent_task_id, atq.failure_reason, atq.last_heartbeat_at, atq.trigger_summary, atq.force_fresh_session FROM agent_task_queue atq
+SELECT atq.id, atq.agent_id, atq.issue_id, atq.status, atq.priority, atq.dispatched_at, atq.started_at, atq.completed_at, atq.result, atq.error, atq.created_at, atq.context, atq.runtime_id, atq.session_id, atq.work_dir, atq.trigger_comment_id, atq.chat_session_id, atq.autopilot_run_id, atq.attempt, atq.max_attempts, atq.parent_task_id, atq.failure_reason, atq.last_heartbeat_at, atq.trigger_summary, atq.force_fresh_session, atq.effect_id, atq.binding_generation, atq.agent_role FROM agent_task_queue atq
 JOIN agent a ON a.id = atq.agent_id
 WHERE a.workspace_id = $1
   AND atq.status IN ('queued', 'dispatched', 'running')
 
 UNION ALL
 
-SELECT t.id, t.agent_id, t.issue_id, t.status, t.priority, t.dispatched_at, t.started_at, t.completed_at, t.result, t.error, t.created_at, t.context, t.runtime_id, t.session_id, t.work_dir, t.trigger_comment_id, t.chat_session_id, t.autopilot_run_id, t.attempt, t.max_attempts, t.parent_task_id, t.failure_reason, t.last_heartbeat_at, t.trigger_summary, t.force_fresh_session FROM (
-  SELECT DISTINCT ON (atq.agent_id) atq.id, atq.agent_id, atq.issue_id, atq.status, atq.priority, atq.dispatched_at, atq.started_at, atq.completed_at, atq.result, atq.error, atq.created_at, atq.context, atq.runtime_id, atq.session_id, atq.work_dir, atq.trigger_comment_id, atq.chat_session_id, atq.autopilot_run_id, atq.attempt, atq.max_attempts, atq.parent_task_id, atq.failure_reason, atq.last_heartbeat_at, atq.trigger_summary, atq.force_fresh_session
+SELECT t.id, t.agent_id, t.issue_id, t.status, t.priority, t.dispatched_at, t.started_at, t.completed_at, t.result, t.error, t.created_at, t.context, t.runtime_id, t.session_id, t.work_dir, t.trigger_comment_id, t.chat_session_id, t.autopilot_run_id, t.attempt, t.max_attempts, t.parent_task_id, t.failure_reason, t.last_heartbeat_at, t.trigger_summary, t.force_fresh_session, t.effect_id, t.binding_generation, t.agent_role FROM (
+  SELECT DISTINCT ON (atq.agent_id) atq.id, atq.agent_id, atq.issue_id, atq.status, atq.priority, atq.dispatched_at, atq.started_at, atq.completed_at, atq.result, atq.error, atq.created_at, atq.context, atq.runtime_id, atq.session_id, atq.work_dir, atq.trigger_comment_id, atq.chat_session_id, atq.autopilot_run_id, atq.attempt, atq.max_attempts, atq.parent_task_id, atq.failure_reason, atq.last_heartbeat_at, atq.trigger_summary, atq.force_fresh_session, atq.effect_id, atq.binding_generation, atq.agent_role
   FROM agent_task_queue atq
   JOIN agent a ON a.id = atq.agent_id
   WHERE a.workspace_id = $1
@@ -1743,6 +1908,9 @@ func (q *Queries) ListWorkspaceAgentTaskSnapshot(ctx context.Context, workspaceI
 			&i.LastHeartbeatAt,
 			&i.TriggerSummary,
 			&i.ForceFreshSession,
+			&i.EffectID,
+			&i.BindingGeneration,
+			&i.AgentRole,
 		); err != nil {
 			return nil, err
 		}
@@ -1761,7 +1929,7 @@ SET status = 'failed',
     error = 'daemon restarted while task was in flight',
     failure_reason = 'runtime_recovery'
 WHERE runtime_id = $1 AND status IN ('dispatched', 'running')
-RETURNING id, agent_id, issue_id, status, priority, dispatched_at, started_at, completed_at, result, error, created_at, context, runtime_id, session_id, work_dir, trigger_comment_id, chat_session_id, autopilot_run_id, attempt, max_attempts, parent_task_id, failure_reason, last_heartbeat_at, trigger_summary, force_fresh_session
+RETURNING id, agent_id, issue_id, status, priority, dispatched_at, started_at, completed_at, result, error, created_at, context, runtime_id, session_id, work_dir, trigger_comment_id, chat_session_id, autopilot_run_id, attempt, max_attempts, parent_task_id, failure_reason, last_heartbeat_at, trigger_summary, force_fresh_session, effect_id, binding_generation, agent_role
 `
 
 // Called by the daemon at startup. Atomically fails any dispatched/running
@@ -1803,6 +1971,9 @@ func (q *Queries) RecoverOrphanedTasksForRuntime(ctx context.Context, runtimeID 
 			&i.LastHeartbeatAt,
 			&i.TriggerSummary,
 			&i.ForceFreshSession,
+			&i.EffectID,
+			&i.BindingGeneration,
+			&i.AgentRole,
 		); err != nil {
 			return nil, err
 		}
@@ -1896,7 +2067,7 @@ SET status = 'completed', completed_at = now(), result = $2,
     session_id = COALESCE($3, session_id),
     work_dir = COALESCE($4, work_dir)
 WHERE id = $1 AND status = 'failed' AND failure_reason = 'runtime_offline'
-RETURNING id, agent_id, issue_id, status, priority, dispatched_at, started_at, completed_at, result, error, created_at, context, runtime_id, session_id, work_dir, trigger_comment_id, chat_session_id, autopilot_run_id, attempt, max_attempts, parent_task_id, failure_reason, last_heartbeat_at, trigger_summary, force_fresh_session
+RETURNING id, agent_id, issue_id, status, priority, dispatched_at, started_at, completed_at, result, error, created_at, context, runtime_id, session_id, work_dir, trigger_comment_id, chat_session_id, autopilot_run_id, attempt, max_attempts, parent_task_id, failure_reason, last_heartbeat_at, trigger_summary, force_fresh_session, effect_id, binding_generation, agent_role
 `
 
 type ReviveRuntimeOfflineTaskParams struct {
@@ -1948,6 +2119,9 @@ func (q *Queries) ReviveRuntimeOfflineTask(ctx context.Context, arg ReviveRuntim
 		&i.LastHeartbeatAt,
 		&i.TriggerSummary,
 		&i.ForceFreshSession,
+		&i.EffectID,
+		&i.BindingGeneration,
+		&i.AgentRole,
 	)
 	return i, err
 }
@@ -1956,7 +2130,7 @@ const startAgentTask = `-- name: StartAgentTask :one
 UPDATE agent_task_queue
 SET status = 'running', started_at = now()
 WHERE id = $1 AND status = 'dispatched'
-RETURNING id, agent_id, issue_id, status, priority, dispatched_at, started_at, completed_at, result, error, created_at, context, runtime_id, session_id, work_dir, trigger_comment_id, chat_session_id, autopilot_run_id, attempt, max_attempts, parent_task_id, failure_reason, last_heartbeat_at, trigger_summary, force_fresh_session
+RETURNING id, agent_id, issue_id, status, priority, dispatched_at, started_at, completed_at, result, error, created_at, context, runtime_id, session_id, work_dir, trigger_comment_id, chat_session_id, autopilot_run_id, attempt, max_attempts, parent_task_id, failure_reason, last_heartbeat_at, trigger_summary, force_fresh_session, effect_id, binding_generation, agent_role
 `
 
 func (q *Queries) StartAgentTask(ctx context.Context, id pgtype.UUID) (AgentTaskQueue, error) {
@@ -1988,6 +2162,9 @@ func (q *Queries) StartAgentTask(ctx context.Context, id pgtype.UUID) (AgentTask
 		&i.LastHeartbeatAt,
 		&i.TriggerSummary,
 		&i.ForceFreshSession,
+		&i.EffectID,
+		&i.BindingGeneration,
+		&i.AgentRole,
 	)
 	return i, err
 }

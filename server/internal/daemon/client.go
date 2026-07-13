@@ -57,9 +57,10 @@ func isTaskNotFoundError(err error) bool {
 
 // Client handles HTTP communication with the Multica server daemon API.
 type Client struct {
-	baseURL string
-	token   string
-	client  *http.Client
+	baseURL      string
+	token        string
+	client       *http.Client
+	trackerTruth bool
 
 	// Identity headers sent on every request as X-Client-*. Populated by
 	// SetIdentity(); empty values are simply omitted.
@@ -122,6 +123,12 @@ func (c *Client) Token() string {
 	return c.token
 }
 
+// SetTrackerTruth marks lifecycle callbacks so the server suppresses its
+// legacy Multica issue-comment fallback for this daemon run.
+func (c *Client) SetTrackerTruth(enabled bool) {
+	c.trackerTruth = enabled
+}
+
 func (c *Client) ClaimTask(ctx context.Context, runtimeID string) (*Task, error) {
 	var resp struct {
 		Task *Task `json:"task"`
@@ -162,6 +169,9 @@ func (c *Client) ReportTaskMessages(ctx context.Context, taskID string, messages
 
 func (c *Client) CompleteTask(ctx context.Context, taskID, output, branchName, sessionID, workDir string) error {
 	body := map[string]any{"output": output}
+	if c.trackerTruth {
+		body["tracker_truth"] = true
+	}
 	if branchName != "" {
 		body["branch_name"] = branchName
 	}
@@ -185,6 +195,9 @@ func (c *Client) ReportTaskUsage(ctx context.Context, taskID string, usage []Tas
 
 func (c *Client) FailTask(ctx context.Context, taskID, errMsg, sessionID, workDir, failureReason string) error {
 	body := map[string]any{"error": errMsg}
+	if c.trackerTruth {
+		body["tracker_truth"] = true
+	}
 	if sessionID != "" {
 		body["session_id"] = sessionID
 	}

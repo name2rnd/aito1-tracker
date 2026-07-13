@@ -415,6 +415,30 @@ func TestBuildEnvNilExtras(t *testing.T) {
 	}
 }
 
+func TestBuildEnvFiltersDaemonServiceToken(t *testing.T) {
+	t.Setenv("AITO1_DAEMON_SERVICE_TOKEN", "daemon-secret")
+	t.Setenv("AITO1_TASK_TOKEN", "stale-task-token")
+
+	env := buildEnv(map[string]string{"AITO1_TASK_TOKEN": "fresh-task-token"})
+	for _, entry := range env {
+		if strings.HasPrefix(entry, "AITO1_DAEMON_SERVICE_TOKEN=") {
+			t.Fatal("daemon service token leaked into child env")
+		}
+	}
+	foundFresh := false
+	for _, entry := range env {
+		if entry == "AITO1_TASK_TOKEN=fresh-task-token" {
+			foundFresh = true
+		}
+		if entry == "AITO1_TASK_TOKEN=stale-task-token" {
+			t.Fatal("stale task token leaked into child env")
+		}
+	}
+	if !foundFresh {
+		t.Fatal("fresh task token missing from child env")
+	}
+}
+
 func TestBuildClaudeArgsBlocksMcpConfig(t *testing.T) {
 	t.Parallel()
 

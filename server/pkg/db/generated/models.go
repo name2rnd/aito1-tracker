@@ -92,6 +92,9 @@ type AgentTaskQueue struct {
 	LastHeartbeatAt   pgtype.Timestamptz `json:"last_heartbeat_at"`
 	TriggerSummary    pgtype.Text        `json:"trigger_summary"`
 	ForceFreshSession bool               `json:"force_fresh_session"`
+	EffectID          pgtype.Text        `json:"effect_id"`
+	BindingGeneration pgtype.Int4        `json:"binding_generation"`
+	AgentRole         pgtype.Text        `json:"agent_role"`
 }
 
 type Attachment struct {

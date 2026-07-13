@@ -549,6 +549,13 @@ func mergeEnv(base []string, extra map[string]string) []string {
 }
 
 func isFilteredChildEnvKey(key string) bool {
+	// Daemon and prior-task credentials are never inherited by an agent
+	// subprocess. The daemon explicitly injects only the fresh task-scoped
+	// token for Tracker-truth runs.
+	switch key {
+	case "AITO1_DAEMON_SERVICE_TOKEN", "AITO1_TASK_TOKEN", "AITO1_TASK_ID":
+		return true
+	}
 	// AITO1-patch (Linux VM): CLAUDE_CODE_OAUTH_TOKEN is the subscription
 	// credential injected via the daemon unit EnvironmentFile — it must reach
 	// the spawned claude process (Linux has no macOS Keychain fallback).

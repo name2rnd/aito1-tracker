@@ -47,6 +47,7 @@ type Config struct {
 	AllowSignup         bool
 	AllowedEmails       []string
 	AllowedEmailDomains []string
+	AITO1RunCorrelation bool
 }
 
 type Handler struct {

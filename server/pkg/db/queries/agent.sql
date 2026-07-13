@@ -76,6 +76,34 @@ VALUES (
 )
 RETURNING *;
 
+-- name: CreateCorrelatedAgentTask :one
+-- effect_id is globally unique in Brain's durable effect outbox. The no-op
+-- update makes a duplicate request return the existing row even when another
+-- request inserted it concurrently or the run has since become terminal.
+INSERT INTO agent_task_queue (
+    agent_id, runtime_id, issue_id, status, priority, trigger_comment_id,
+    trigger_summary, force_fresh_session, effect_id, binding_generation,
+    agent_role, context
+)
+VALUES (
+    $1, $2, $3, 'queued', $4, sqlc.narg(trigger_comment_id),
+    sqlc.narg(trigger_summary),
+    COALESCE(sqlc.narg('force_fresh_session')::boolean, FALSE),
+    $5, $6, $7, jsonb_build_object('effect_id', $5::text)
+)
+ON CONFLICT (effect_id) WHERE effect_id IS NOT NULL
+DO UPDATE SET effect_id = EXCLUDED.effect_id
+RETURNING id, (xmax = 0) AS inserted;
+
+-- name: GetAgentTaskByEffectID :one
+SELECT * FROM agent_task_queue
+WHERE effect_id = $1;
+
+-- name: AcquireAgentTaskEffectLock :exec
+-- Serializes correlated reruns before they cancel an existing pending run.
+-- The lock is transaction-scoped and never survives commit/rollback.
+SELECT pg_advisory_xact_lock(hashtextextended($1, 0));
+
 -- name: CreateQuickCreateTask :one
 -- Quick-create tasks have no issue / chat / autopilot link; the entire job
 -- description (prompt, requester, workspace) lives in context JSONB. The

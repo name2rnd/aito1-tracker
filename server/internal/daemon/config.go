@@ -14,6 +14,7 @@ import (
 
 const (
 	DefaultServerURL                      = "ws://localhost:8080/ws"
+	DefaultAITO1BrainURL                  = "http://127.0.0.1:8082"
 	DefaultPollInterval                   = 30 * time.Second
 	DefaultHeartbeatInterval              = 15 * time.Second
 	DefaultAgentTimeout                   = 2 * time.Hour
@@ -63,6 +64,9 @@ type Config struct {
 	CodexSemanticInactivityTimeout time.Duration
 	ClaudeArgs                     []string
 	CodexArgs                      []string
+	AITO1TrackerTruth              bool
+	AITO1BrainURL                  string
+	AITO1DaemonServiceToken        string
 }
 
 // Overrides allows CLI flags to override environment variables and defaults.
@@ -93,6 +97,20 @@ func LoadConfig(overrides Overrides) (Config, error) {
 	serverBaseURL, err := NormalizeServerBaseURL(rawServerURL)
 	if err != nil {
 		return Config{}, err
+	}
+
+	aito1TrackerTruth := envBool("AITO1_TRACKER_TRUTH")
+	aito1BrainURL := strings.TrimRight(envOrDefault("AITO1_BRAIN_URL", DefaultAITO1BrainURL), "/")
+	aito1DaemonServiceToken := ""
+	if aito1TrackerTruth {
+		aito1BrainURL, err = NormalizeServerBaseURL(aito1BrainURL)
+		if err != nil {
+			return Config{}, fmt.Errorf("invalid AITO1_BRAIN_URL: %w", err)
+		}
+		aito1DaemonServiceToken = strings.TrimSpace(os.Getenv("AITO1_DAEMON_SERVICE_TOKEN"))
+		if aito1DaemonServiceToken == "" {
+			return Config{}, fmt.Errorf("AITO1_DAEMON_SERVICE_TOKEN is required when AITO1_TRACKER_TRUTH is enabled")
+		}
 	}
 
 	// Probe available agent CLIs
@@ -359,7 +377,19 @@ func LoadConfig(overrides Overrides) (Config, error) {
 		CodexSemanticInactivityTimeout: codexSemanticInactivityTimeout,
 		ClaudeArgs:                     claudeArgs,
 		CodexArgs:                      codexArgs,
+		AITO1TrackerTruth:              aito1TrackerTruth,
+		AITO1BrainURL:                  aito1BrainURL,
+		AITO1DaemonServiceToken:        aito1DaemonServiceToken,
 	}, nil
+}
+
+func envBool(name string) bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv(name))) {
+	case "1", "true":
+		return true
+	default:
+		return false
+	}
 }
 
 // NormalizeServerBaseURL converts a WebSocket or HTTP URL to a base HTTP URL.
