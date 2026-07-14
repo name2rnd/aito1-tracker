@@ -28,9 +28,20 @@ type runtimeContextResponse struct {
 	UntrustedUserContent bool            `json:"untrusted_user_content"`
 }
 
+// trustedContext is the minimal slice of the trusted metadata the daemon needs
+// to hand the agent a canonical identity: tracker_key drives memory skills,
+// runtime_issue_id drives runtime-only reads (execution traces). Neither is
+// interpolated into the prompt.
+type trustedContext struct {
+	TrackerKey     string `json:"tracker_key"`
+	RuntimeIssueID string `json:"runtime_issue_id"`
+}
+
 type taskInput struct {
-	UserPrompt string
-	TaskToken  string
+	UserPrompt     string
+	TaskToken      string
+	TrackerKey     string
+	RuntimeIssueID string
 }
 
 // RuntimeContextError means Tracker-truth context could not be obtained. The
@@ -120,9 +131,19 @@ func (d *Daemon) fetchRuntimeContext(ctx context.Context, task Task) (taskInput,
 	if taskToken == "" {
 		return taskInput{}, &RuntimeContextError{Err: fmt.Errorf("task token header is missing")}
 	}
+	var trusted trustedContext
+	if err := json.Unmarshal(payload.Trusted, &trusted); err != nil {
+		return taskInput{}, &RuntimeContextError{Err: fmt.Errorf("decode trusted metadata: %w", err)}
+	}
+	trusted.TrackerKey = strings.TrimSpace(trusted.TrackerKey)
+	if trusted.TrackerKey == "" {
+		return taskInput{}, &RuntimeContextError{Err: fmt.Errorf("trusted tracker_key is missing")}
+	}
 
 	return taskInput{
-		UserPrompt: untrustedTaskDataNotice + "\n\n" + compact.String(),
-		TaskToken:  taskToken,
+		UserPrompt:     untrustedTaskDataNotice + "\n\n" + compact.String(),
+		TaskToken:      taskToken,
+		TrackerKey:     trusted.TrackerKey,
+		RuntimeIssueID: strings.TrimSpace(trusted.RuntimeIssueID),
 	}, nil
 }

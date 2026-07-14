@@ -112,6 +112,9 @@ func TestTaskInputTrackerTruthUsesUntrustedUserPayload(t *testing.T) {
 	if input.TaskToken != "short-lived-task-token" {
 		t.Fatalf("task token = %q", input.TaskToken)
 	}
+	if input.TrackerKey != "AITO-42" {
+		t.Fatalf("tracker_key = %q", input.TrackerKey)
+	}
 	execOpts := agent.ExecOptions{}
 	configureSystemPrompt(&execOpts, d.cfg, "codex", task.Agent.Instructions)
 	if execOpts.SystemPrompt != "STATIC PLANNER SYSTEM PROMPT" || strings.Contains(execOpts.SystemPrompt, "Tracker title") {
@@ -125,9 +128,12 @@ func TestTaskInputTrackerTruthUsesUntrustedUserPayload(t *testing.T) {
 	}
 
 	agentEnv := map[string]string{}
-	addAITO1TaskEnv(agentEnv, d.cfg, task.ID, input.TaskToken)
+	addAITO1TaskEnv(agentEnv, d.cfg, task.ID, input.TaskToken, input.TrackerKey, input.RuntimeIssueID)
 	if agentEnv["AITO1_TASK_TOKEN"] != input.TaskToken || agentEnv["AITO1_TASK_ID"] != task.ID {
 		t.Fatalf("task-scoped env missing: %#v", agentEnv)
+	}
+	if agentEnv["AITO1_TRACKER_KEY"] != "AITO-42" {
+		t.Fatalf("tracker_key env missing: %#v", agentEnv)
 	}
 	if _, inherited := agentEnv["AITO1_DAEMON_SERVICE_TOKEN"]; inherited {
 		t.Fatal("daemon service token must not be inherited by the agent")

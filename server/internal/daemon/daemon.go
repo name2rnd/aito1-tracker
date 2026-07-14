@@ -1659,7 +1659,7 @@ func (d *Daemon) runTask(ctx context.Context, task Task, provider string, slot i
 		"MULTICA_TASK_ID":      task.ID,
 		"MULTICA_TASK_SLOT":    strconv.Itoa(slot),
 	}
-	addAITO1TaskEnv(agentEnv, d.cfg, task.ID, input.TaskToken)
+	addAITO1TaskEnv(agentEnv, d.cfg, task.ID, input.TaskToken, input.TrackerKey, input.RuntimeIssueID)
 	if task.AutopilotRunID != "" {
 		agentEnv["MULTICA_AUTOPILOT_RUN_ID"] = task.AutopilotRunID
 	}
@@ -2294,7 +2294,8 @@ func isBlockedEnvKey(key string) bool {
 	}
 	switch upper {
 	case "HOME", "PATH", "USER", "SHELL", "TERM", "CODEX_HOME",
-		"AITO1_DAEMON_SERVICE_TOKEN", "AITO1_TASK_TOKEN", "AITO1_TASK_ID", "AITO1_BRAIN_URL":
+		"AITO1_DAEMON_SERVICE_TOKEN", "AITO1_TASK_TOKEN", "AITO1_TASK_ID", "AITO1_BRAIN_URL",
+		"AITO1_TRACKER_KEY", "AITO1_RUNTIME_ISSUE_ID":
 		return true
 	}
 	return false
@@ -2311,13 +2312,22 @@ func failureReasonForRunError(err error) string {
 	return "agent_error"
 }
 
-func addAITO1TaskEnv(agentEnv map[string]string, cfg Config, taskID, taskToken string) {
+func addAITO1TaskEnv(agentEnv map[string]string, cfg Config, taskID, taskToken, trackerKey, runtimeIssueID string) {
 	if !cfg.AITO1TrackerTruth {
 		return
 	}
 	agentEnv["AITO1_TASK_TOKEN"] = taskToken
 	agentEnv["AITO1_TASK_ID"] = taskID
 	agentEnv["AITO1_BRAIN_URL"] = cfg.AITO1BrainURL
+	// tracker_key drives memory skills (recall/plan_permissions/how-to); the
+	// runtime issue id drives runtime-only reads (execution traces). Both come
+	// from the trusted runtime-context metadata, never from the agent.
+	if trackerKey != "" {
+		agentEnv["AITO1_TRACKER_KEY"] = trackerKey
+	}
+	if runtimeIssueID != "" {
+		agentEnv["AITO1_RUNTIME_ISSUE_ID"] = runtimeIssueID
+	}
 }
 
 func configureSystemPrompt(opts *agent.ExecOptions, cfg Config, provider, instructions string) {
