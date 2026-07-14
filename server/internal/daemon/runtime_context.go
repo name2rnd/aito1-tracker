@@ -51,10 +51,20 @@ func (e *RuntimeContextError) Error() string {
 func (e *RuntimeContextError) Unwrap() error { return e.Err }
 
 func (d *Daemon) taskInput(ctx context.Context, task Task) (taskInput, error) {
-	if !d.cfg.AITO1TrackerTruth {
+	if !d.cfg.AITO1TrackerTruth || !isTrackerTruthRuntimeTask(task) {
 		return taskInput{UserPrompt: BuildPrompt(task)}, nil
 	}
 	return d.fetchRuntimeContext(ctx, task)
+}
+
+// isTrackerTruthRuntimeTask reports whether a run is a pipeline task bound to a
+// Tracker issue (Planner/Executor/Junior/Reflector working an issue). Only such
+// runs resolve to a tracker_key via the active runtime link and need the Brain
+// runtime-context provider. Autopilot scan/contour agents (Prospector, Curator,
+// Wanderer, Worker, PM, CR) have no Tracker task binding: they keep their own
+// context via BuildPrompt and their legacy env, even under Tracker-truth.
+func isTrackerTruthRuntimeTask(task Task) bool {
+	return task.IssueID != "" && task.AutopilotID == ""
 }
 
 func (d *Daemon) fetchRuntimeContext(ctx context.Context, task Task) (taskInput, error) {

@@ -1587,7 +1587,7 @@ func (d *Daemon) runTask(ctx context.Context, task Task, provider string, slot i
 		AutopilotTriggerPayload: strings.TrimSpace(string(task.AutopilotTriggerPayload)),
 		QuickCreatePrompt:       task.QuickCreatePrompt,
 	}
-	if d.cfg.AITO1TrackerTruth {
+	if d.cfg.AITO1TrackerTruth && isTrackerTruthRuntimeTask(task) {
 		scrubLegacyTaskContext(&taskCtx)
 	}
 

@@ -185,12 +185,37 @@ func TestTaskInputTrackerTruth503FailsClosed(t *testing.T) {
 		AITO1BrainURL:           server.URL,
 		AITO1DaemonServiceToken: "daemon-token",
 	}}
-	_, err := d.taskInput(context.Background(), Task{ID: "task-outage"})
+	// A pipeline runtime task (bound to a Tracker issue) must fail closed on a
+	// provider outage.
+	_, err := d.taskInput(context.Background(), Task{ID: "task-outage", IssueID: "issue-1"})
 	var providerErr *RuntimeContextError
 	if !errors.As(err, &providerErr) || providerErr.StatusCode != http.StatusServiceUnavailable {
 		t.Fatalf("expected provider 503 error, got %v", err)
 	}
 	if reason := failureReasonForRunError(err); reason != "runtime_context_unavailable" {
 		t.Fatalf("failure reason = %q", reason)
+	}
+}
+
+// Autopilot scan/contour agents (Prospector/Curator/…) have no Tracker task
+// binding, so Tracker-truth must NOT route them through the runtime-context
+// provider: they keep BuildPrompt and never fail on provider outage.
+func TestTaskInputTrackerTruthSkipsNonPipelineRuns(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "tracker unavailable", http.StatusServiceUnavailable)
+	}))
+	t.Cleanup(server.Close)
+	d := &Daemon{cfg: Config{
+		AITO1TrackerTruth:       true,
+		AITO1BrainURL:           server.URL,
+		AITO1DaemonServiceToken: "daemon-token",
+	}}
+	// No IssueID → intake scan run.
+	if _, err := d.taskInput(context.Background(), Task{ID: "prospector-scan"}); err != nil {
+		t.Fatalf("intake scan run must not hit runtime-context: %v", err)
+	}
+	// IssueID present but autopilot-triggered → contour run, still legacy.
+	if _, err := d.taskInput(context.Background(), Task{ID: "curator", IssueID: "i-1", AutopilotID: "ap-1"}); err != nil {
+		t.Fatalf("autopilot contour run must not hit runtime-context: %v", err)
 	}
 }
