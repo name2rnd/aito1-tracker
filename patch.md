@@ -1691,3 +1691,7 @@ cmd/server correlation+legacy-rerun и handler API — PASS.
 ранний тест архивирует общий fixture-agent, после чего rerun-тесты получают `agent is archived`;
 изолированный прогон тех же rerun/correlation тестов на чистой БД зелёный. На VM ничего не
 собиралось и не деплоилось. Реальный Brain↔daemon↔Tracker e2e оставлен на cutover.
+
+## Патч N: автологин владельца без токена (private install)
+
+`server/internal/middleware/auth.go` — запрос БЕЗ токена аутентифицируется как владелец из env `MULTICA_AUTO_AUTH_USER_ID` (Human user id). Запросы С токеном (агенты/демон/роботы, Bearer PAT/JWT) валидируются как раньше и не перенаправляются. Мотивация: приватная single-user инсталляция, PAT владельца протухает и его негде перевыпустить без UI. Env сажается в systemd-юнит ai-aito1-multica-backend на VM.

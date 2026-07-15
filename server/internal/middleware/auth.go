@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -32,6 +33,17 @@ func Auth(queries *db.Queries, patCache *auth.PATCache) func(http.Handler) http.
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			tokenString, fromCookie := extractToken(r)
 			if tokenString == "" {
+				// AITO1 patch: private single-user install. A request that
+				// carries NO token at all (owner's browser without a live
+				// session) authenticates as the owner from
+				// MULTICA_AUTO_AUTH_USER_ID. Requests WITH a token (agents,
+				// daemon, robots — Bearer PAT/JWT) are validated as usual and
+				// are never rerouted to the owner.
+				if ownerID := os.Getenv("MULTICA_AUTO_AUTH_USER_ID"); ownerID != "" {
+					r.Header.Set("X-User-ID", ownerID)
+					next.ServeHTTP(w, r)
+					return
+				}
 				slog.Debug("auth: no token found", "path", r.URL.Path)
 				http.Error(w, `{"error":"missing authorization"}`, http.StatusUnauthorized)
 				return
